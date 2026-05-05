@@ -1,0 +1,193 @@
+// ==========================================
+// 1. НАЛАШТУВАННЯ
+// ==========================================
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==========================================
+// 2. КОРИСТУВАЧІ ТА РОЛІ
+// ==========================================
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String?
+  role      Role     @default(STUDENT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tests     Test[]   
+  attempts  Attempt[] 
+
+  ratings   Rating[] 
+}
+
+// ==========================================
+// 3. КАТЕГОРІЇ (Основа для рекомендацій)
+// ==========================================
+model Category {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+
+  tests       Test[]   
+}
+
+// ==========================================
+// 4. ТЕСТИ ТА СТРУКТУРА ПИТАНЬ
+// ==========================================
+enum Difficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+
+model Test {
+  id           String     @id @default(uuid())
+  title        String
+  description  String?
+  isPublished  Boolean    @default(false)
+  
+  difficulty   Difficulty @default(BEGINNER) 
+  passingScore Int        @default(60)       
+  timeLimit    Int?      
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  authorId     String
+  author       User       @relation(fields: [authorId], references: [id])
+
+  categoryId   String?
+  category     Category?  @relation(fields: [categoryId], references: [id])
+
+  questions    Question[]
+  attempts     Attempt[]
+
+  averageRating Float    @default(0) // Середній рейтинг (наприклад, 4.5)
+  ratingCount   Int      @default(0) // Кількість людей, що проголосували
+
+  ratings       Rating[] // Зв'язок з новою таблицею
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  TEXT_ANSWER
+}
+
+model Question {
+  id          String       @id @default(uuid())
+  text        String
+  type        QuestionType @default(SINGLE_CHOICE)
+  points      Int          @default(1) 
+
+  testId      String
+  test        Test         @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  options     Option[]
+  answers     UserAnswer[]
+
+  teacherInsight String?
+
+  tags        Tag[]
+}
+
+model Tag {
+  id        String     @id @default(uuid())
+  name      String     @unique // Назва тегу
+  
+  questions Question[] // Зв'язок: в яких питаннях використовується цей тег
+}
+
+model Option {
+  id          String   @id @default(uuid())
+  text        String
+  isCorrect   Boolean  @default(false)
+
+  questionId  String
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  userAnswers UserAnswer[] 
+}
+
+// ==========================================
+// 5. РЕЗУЛЬТАТИ (Паливо для алгоритму)
+// ==========================================
+model Attempt {
+  id                  String       @id @default(uuid())
+  
+  // Бали
+  score               Int          @default(0) // Набрані бали (напр., 6)
+  maxScore            Int          @default(0) // Максимальний бал (напр., 12)
+  
+  // Статус проходження (НОВЕ)
+  passingScore        Int          // Прохідний поріг у балах або відсотках на момент складання
+  isPassed            Boolean      @default(false) // Одразу фіксуємо Passed/Failed
+  
+  // Час
+  startedAt           DateTime     @default(now())
+  completedAt         DateTime?
+
+  // Рекомендаційний алгоритм (НОВЕ)
+  studyRecommendation String?      // Текстовий фідбек: "You are solid on core syntax..."
+  focusAreas          String[]     // Масив тегів для фронтенду: ["Event loop", "Promise concurrency"]
+
+  // Зв'язки
+  userId              String
+  user                User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  testId              String
+  test                Test         @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  userAnswers         UserAnswer[]
+}
+
+model UserAnswer {
+  id          String   @id @default(uuid())
+  isCorrect   Boolean  @default(false) // Зручно для швидкої статистики
+
+  attemptId   String
+  attempt     Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  questionId  String
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  // Якщо це тестове запитання
+  optionId    String?
+  option      Option?  @relation(fields: [optionId], references: [id])
+
+  // Якщо це відкрите питання (на майбутнє)
+  textAnswer  String?  
+}
+
+model Rating {
+  id        String   @id @default(uuid())
+  value     Int      // Значення рейтингу, наприклад від 1 до 5
+  comment   String?  // Необов'язковий текстовий відгук
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  testId    String
+  test      Test     @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Супер-важливе правило: один юзер може оцінити конкретний тест лише один раз
+  @@unique([userId, testId]) 
+}
