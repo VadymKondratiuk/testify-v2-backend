@@ -1,13 +1,7 @@
 import { Transform } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
-export enum MyAttemptStatus {
-  ALL = 'ALL',
-  PASSED = 'PASSED',
-  FAILED = 'FAILED',
-}
-
-export class FindMyAttemptsQueryDto {
+export class FindAnalyticsAttemptsQueryDto {
   @IsOptional()
   @Transform(({ value }) => Number(value))
   @IsInt()
@@ -22,6 +16,6 @@ export class FindMyAttemptsQueryDto {
   limit?: number = 20;
 
   @IsOptional()
-  @IsEnum(MyAttemptStatus)
-  status?: MyAttemptStatus = MyAttemptStatus.ALL;
+  @IsString()
+  search?: string;
 }

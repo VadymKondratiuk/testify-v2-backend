@@ -7,7 +7,10 @@ import {
 import { Prisma, QuestionType, Role } from '@prisma/client';
 import { JwtPayload } from '../auth/types/jwt-payload.type';
 import { PrismaService } from '../prisma/prisma.service';
-import { FindMyAttemptsQueryDto } from './dto/find-my-attempts-query.dto';
+import {
+  FindMyAttemptsQueryDto,
+  MyAttemptStatus,
+} from './dto/find-my-attempts-query.dto';
 import {
   SubmitAttemptAnswerDto,
   SubmitAttemptDto,
@@ -172,7 +175,15 @@ export class AttemptsService {
   async findMy(studentId: string, query: FindMyAttemptsQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const where = { userId: studentId } satisfies Prisma.AttemptWhereInput;
+    const where = {
+      userId: studentId,
+      ...(query.status === MyAttemptStatus.PASSED
+        ? { isPassed: true, completedAt: { not: null } }
+        : {}),
+      ...(query.status === MyAttemptStatus.FAILED
+        ? { isPassed: false, completedAt: { not: null } }
+        : {}),
+    } satisfies Prisma.AttemptWhereInput;
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.attempt.findMany({
@@ -180,13 +191,55 @@ export class AttemptsService {
         orderBy: { startedAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
-        ...this.defaultAttemptArgs(),
+        include: {
+          test: {
+            select: {
+              id: true,
+              title: true,
+              difficulty: true,
+              passingScore: true,
+              category: true,
+              _count: {
+                select: {
+                  questions: true,
+                },
+              },
+            },
+          },
+          userAnswers: {
+            select: {
+              questionId: true,
+              isCorrect: true,
+            },
+          },
+        },
       }),
       this.prisma.attempt.count({ where }),
     ]);
 
     return {
-      items,
+      items: items.map((attempt) => ({
+        id: attempt.id,
+        score: attempt.score,
+        maxScore: attempt.maxScore,
+        scorePercentage: this.toPercentage(attempt.score, attempt.maxScore),
+        isPassed: attempt.isPassed,
+        startedAt: attempt.startedAt,
+        completedAt: attempt.completedAt,
+        timeSpentSeconds: this.getTimeSpentSeconds(
+          attempt.startedAt,
+          attempt.completedAt,
+        ),
+        correctAnswersCount: this.countCorrectAnswers(attempt.userAnswers),
+        totalQuestionsCount: attempt.test._count.questions,
+        test: {
+          id: attempt.test.id,
+          title: attempt.test.title,
+          difficulty: attempt.test.difficulty,
+          passingScore: attempt.test.passingScore,
+          category: attempt.test.category,
+        },
+      })),
       meta: {
         total,
         page,
@@ -428,6 +481,36 @@ export class AttemptsService {
     }
 
     return `Review the core material and focus on: ${focusAreas.join(', ')}.`;
+  }
+
+  private countCorrectAnswers(
+    userAnswers: Array<{ questionId: string; isCorrect: boolean }>,
+  ) {
+    return new Set(
+      userAnswers
+        .filter((answer) => answer.isCorrect)
+        .map((answer) => answer.questionId),
+    ).size;
+  }
+
+  private getTimeSpentSeconds(startedAt: Date, completedAt: Date | null) {
+    if (!completedAt) {
+      return 0;
+    }
+
+    return Math.round((completedAt.getTime() - startedAt.getTime()) / 1000);
+  }
+
+  private toPercentage(value: number, total: number) {
+    if (total === 0) {
+      return 0;
+    }
+
+    return this.roundToTwo((value / total) * 100);
+  }
+
+  private roundToTwo(value: number) {
+    return Math.round(value * 100) / 100;
   }
 
   private defaultAttemptArgs() {

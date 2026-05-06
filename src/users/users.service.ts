@@ -78,6 +78,76 @@ export class UsersService {
     return user;
   }
 
+  async findMyDashboard(studentId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: studentId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        attempts: {
+          where: {
+            completedAt: { not: null },
+          },
+          include: {
+            test: {
+              select: {
+                categoryId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with id "${studentId}" was not found`);
+    }
+
+    const completedAttempts = user.attempts;
+    const testsTaken = completedAttempts.length;
+    const averageScore = this.average(
+      completedAttempts.map((attempt) =>
+        this.toPercentage(attempt.score, attempt.maxScore),
+      ),
+    );
+    const masteredCategoryIds = new Set(
+      completedAttempts
+        .filter((attempt) => attempt.isPassed && attempt.test.categoryId)
+        .map((attempt) => attempt.test.categoryId),
+    );
+    const totalTimeSpentSeconds = completedAttempts.reduce(
+      (total, attempt) =>
+        total + this.getTimeSpentSeconds(attempt.startedAt, attempt.completedAt),
+      0,
+    );
+
+    return {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+      },
+      stats: {
+        testsTaken,
+        averageScore,
+        skillsMastered: masteredCategoryIds.size,
+        hoursSpent: this.roundToTwo(totalTimeSpentSeconds / 3600),
+        timeSpent:
+          totalTimeSpentSeconds < 3600
+            ? {
+                value: this.roundToTwo(totalTimeSpentSeconds / 60),
+                unit: 'minutes',
+              }
+            : {
+                value: this.roundToTwo(totalTimeSpentSeconds / 3600),
+                unit: 'hours',
+              },
+        totalTimeSpentSeconds,
+      },
+    };
+  }
+
   async findByEmailWithPassword(email: string) {
     return this.prisma.user.findUnique({
       where: { email },
@@ -194,6 +264,36 @@ export class UsersService {
 
   async verifyPassword(plainPassword: string, storedPassword: string) {
     return bcrypt.compare(plainPassword, storedPassword);
+  }
+
+  private average(values: number[]) {
+    if (values.length === 0) {
+      return 0;
+    }
+
+    return this.roundToTwo(
+      values.reduce((total, value) => total + value, 0) / values.length,
+    );
+  }
+
+  private toPercentage(value: number, total: number) {
+    if (total === 0) {
+      return 0;
+    }
+
+    return this.roundToTwo((value / total) * 100);
+  }
+
+  private getTimeSpentSeconds(startedAt: Date, completedAt: Date | null) {
+    if (!completedAt) {
+      return 0;
+    }
+
+    return Math.round((completedAt.getTime() - startedAt.getTime()) / 1000);
+  }
+
+  private roundToTwo(value: number) {
+    return Math.round(value * 100) / 100;
   }
 
   private buildWhere(query: FindUsersQueryDto): Prisma.UserWhereInput {

@@ -14,6 +14,7 @@ import {
   RatingFilter,
   TestSortOption,
 } from './dto/find-tests-query.dto';
+import { FindMyTestsQueryDto } from './dto/find-my-tests-query.dto';
 import { PublishTestDto } from './dto/publish-test.dto';
 import { UpdateTestDto } from './dto/update-test.dto';
 
@@ -67,6 +68,58 @@ export class TestsService {
           rating: query.rating,
           sort: query.sort ?? TestSortOption.NEWEST_FIRST,
         },
+      },
+    };
+  }
+
+  async findMy(query: FindMyTestsQueryDto, teacherId: string) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const where: Prisma.TestWhereInput = {
+      authorId: teacherId,
+      ...(query.search
+        ? {
+            OR: [
+              { title: { contains: query.search, mode: 'insensitive' } },
+              { description: { contains: query.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+    const orderBy = {
+      [query.sortBy ?? 'updatedAt']: query.sortOrder ?? 'desc',
+    } satisfies Prisma.TestOrderByWithRelationInput;
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.test.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          title: true,
+          isPublished: true,
+          createdAt: true,
+          updatedAt: true,
+          _count: {
+            select: {
+              questions: true,
+              attempts: true,
+            },
+          },
+        },
+      }),
+      this.prisma.test.count({ where }),
+    ]);
+
+    return {
+      items,
+      meta: {
+        total,
+        page,
+        limit,
+        pageCount: Math.ceil(total / limit),
       },
     };
   }
@@ -149,12 +202,25 @@ export class TestsService {
 
   async remove(id: string, teacherId: string) {
     await this.ensureTeacherOwnsTest(id, teacherId);
+    await this.ensureTestHasNoAttempts(id);
 
     await this.prisma.test.delete({
       where: { id },
     });
 
     return { id };
+  }
+
+  private async ensureTestHasNoAttempts(id: string) {
+    const attemptsCount = await this.prisma.attempt.count({
+      where: { testId: id },
+    });
+
+    if (attemptsCount > 0) {
+      throw new BadRequestException(
+        'Test cannot be deleted because it already has attempts',
+      );
+    }
   }
 
   private async buildWhere(

@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { GetCurrentUser } from '../auth/decorators/get-current-user.decorator';
+import { GetCurrentUserId } from '../auth/decorators/get-current-user-id.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { AtAuthGuard } from '../auth/guards/at-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -30,6 +31,13 @@ export class UsersController {
   @Get()
   findAll(@Query() query: FindUsersQueryDto) {
     return this.usersService.findAll(query);
+  }
+
+  @UseGuards(AtAuthGuard, RolesGuard)
+  @Roles(Role.STUDENT)
+  @Get('me/dashboard')
+  findMyDashboard(@GetCurrentUserId() studentId: string) {
+    return this.usersService.findMyDashboard(studentId);
   }
 
   @UseGuards(AtAuthGuard, SelfOrAdminGuard)

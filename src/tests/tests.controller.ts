@@ -17,6 +17,7 @@ import { AtAuthGuard } from '../auth/guards/at-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { TestsService } from './tests.service';
 import { CreateTestDto } from './dto/create-test.dto';
+import { FindMyTestsQueryDto } from './dto/find-my-tests-query.dto';
 import { UpdateTestDto } from './dto/update-test.dto';
 import { FindTestsQueryDto } from './dto/find-tests-query.dto';
 import { PublishTestDto } from './dto/publish-test.dto';
@@ -38,6 +39,16 @@ export class TestsController {
   @Get()
   findAll(@Query() query: FindTestsQueryDto) {
     return this.testsService.findAll(query);
+  }
+
+  @UseGuards(AtAuthGuard, RolesGuard)
+  @Roles(Role.TEACHER)
+  @Get('my')
+  findMy(
+    @Query() query: FindMyTestsQueryDto,
+    @GetCurrentUserId() teacherId: string,
+  ) {
+    return this.testsService.findMy(query, teacherId);
   }
 
   @UseGuards(AtAuthGuard, RolesGuard)
