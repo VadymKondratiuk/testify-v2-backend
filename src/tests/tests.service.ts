@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma, QuestionType, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTestDto } from './dto/create-test.dto';
 import {
@@ -98,6 +98,10 @@ export class TestsService {
 
   async publish(id: string, publishTestDto: PublishTestDto, teacherId: string) {
     await this.ensureTeacherOwnsTest(id, teacherId);
+
+    if (publishTestDto.isPublished) {
+      await this.ensureTestCanBePublished(id);
+    }
 
     return this.prisma.test.update({
       where: { id },
@@ -328,6 +332,87 @@ export class TestsService {
 
     if (test.authorId !== teacherId) {
       throw new ForbiddenException('You can manage only your own tests');
+    }
+  }
+
+  private async ensureTestCanBePublished(id: string) {
+    const test = await this.prisma.test.findUnique({
+      where: { id },
+      include: {
+        questions: {
+          include: {
+            options: true,
+          },
+        },
+      },
+    });
+
+    if (!test) {
+      throw new NotFoundException(`Test with id "${id}" was not found`);
+    }
+
+    const validationErrors: string[] = [];
+
+    if (test.passingScore < 0 || test.passingScore > 100) {
+      validationErrors.push('passingScore must be between 0 and 100');
+    }
+
+    if (test.timeLimit !== null && test.timeLimit < 1) {
+      validationErrors.push('timeLimit must be greater than 0');
+    }
+
+    if (test.questions.length === 0) {
+      validationErrors.push('test must have at least one question');
+    }
+
+    for (const question of test.questions) {
+      const label = `Question "${question.text}"`;
+
+      if (question.text.trim().length === 0) {
+        validationErrors.push('question text cannot be empty');
+      }
+
+      if (question.points < 1) {
+        validationErrors.push(`${label} must have at least 1 point`);
+      }
+
+      if (question.type === QuestionType.TEXT_ANSWER) {
+        if (question.options.length > 0) {
+          validationErrors.push(`${label} cannot have options`);
+        }
+
+        continue;
+      }
+
+      if (question.options.length < 2) {
+        validationErrors.push(`${label} must have at least two options`);
+      }
+
+      const correctOptionsCount = question.options.filter(
+        (option) => option.isCorrect,
+      ).length;
+
+      if (question.type === QuestionType.SINGLE_CHOICE) {
+        if (correctOptionsCount !== 1) {
+          validationErrors.push(
+            `${label} must have exactly one correct option`,
+          );
+        }
+      }
+
+      if (
+        question.type === QuestionType.MULTIPLE_CHOICE &&
+        correctOptionsCount < 1
+      ) {
+        validationErrors.push(`${label} must have at least one correct option`);
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      throw new BadRequestException({
+        message: 'Test cannot be published',
+        errors: validationErrors,
+      });
     }
   }
 
