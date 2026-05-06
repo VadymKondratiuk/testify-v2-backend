@@ -4,9 +4,9 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  IsUUID,
   Max,
   Min,
+  IsUUID,
 } from 'class-validator';
 import { Difficulty } from '@prisma/client';
 
@@ -36,9 +36,6 @@ export class CreateTestDto {
   @IsInt()
   @Min(1)
   timeLimit?: number;
-
-  @IsUUID()
-  authorId!: string;
 
   @IsOptional()
   @IsUUID()

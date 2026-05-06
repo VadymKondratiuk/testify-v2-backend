@@ -22,6 +22,7 @@ model User {
   id        String   @id @default(uuid())
   email     String   @unique
   password  String
+  hashedRt  String?
   name      String?
   role      Role     @default(STUDENT)
   createdAt DateTime @default(now())

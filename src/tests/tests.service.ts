@@ -1,8 +1,19 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTestDto } from './dto/create-test.dto';
-import { FindTestsQueryDto } from './dto/find-tests-query.dto';
+import {
+  DurationFilter,
+  FindTestsQueryDto,
+  QuestionCountFilter,
+  RatingFilter,
+  TestSortOption,
+} from './dto/find-tests-query.dto';
 import { PublishTestDto } from './dto/publish-test.dto';
 import { UpdateTestDto } from './dto/update-test.dto';
 
@@ -10,12 +21,15 @@ import { UpdateTestDto } from './dto/update-test.dto';
 export class TestsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(createTestDto: CreateTestDto) {
-    await this.ensureAuthorCanCreateTests(createTestDto.authorId);
+  async create(createTestDto: CreateTestDto, authorId: string) {
+    await this.ensureTeacherCanCreateTests(authorId);
     await this.ensureCategoryExists(createTestDto.categoryId);
 
     return this.prisma.test.create({
-      data: createTestDto,
+      data: {
+        ...createTestDto,
+        authorId,
+      },
       ...this.defaultTestArgs(),
     });
   }
@@ -23,10 +37,8 @@ export class TestsService {
   async findAll(query: FindTestsQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const where = this.buildWhere(query);
-    const orderBy = {
-      [query.sortBy ?? 'createdAt']: query.sortOrder ?? 'desc',
-    } as Prisma.TestOrderByWithRelationInput;
+    const where = await this.buildWhere(query);
+    const orderBy = this.buildOrderBy(query);
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.test.findMany({
@@ -46,6 +58,15 @@ export class TestsService {
         page,
         limit,
         pageCount: Math.ceil(total / limit),
+        filters: {
+          search: query.search,
+          categoryIds: this.resolveCategoryIds(query),
+          difficulties: this.resolveDifficulties(query),
+          durations: query.durations,
+          questionCounts: query.questionCounts,
+          rating: query.rating,
+          sort: query.sort ?? TestSortOption.NEWEST_FIRST,
+        },
       },
     };
   }
@@ -63,12 +84,8 @@ export class TestsService {
     return test;
   }
 
-  async update(id: string, updateTestDto: UpdateTestDto) {
-    await this.ensureTestExists(id);
-
-    if (updateTestDto.authorId) {
-      await this.ensureAuthorCanCreateTests(updateTestDto.authorId);
-    }
+  async update(id: string, updateTestDto: UpdateTestDto, teacherId: string) {
+    await this.ensureTeacherOwnsTest(id, teacherId);
 
     await this.ensureCategoryExists(updateTestDto.categoryId);
 
@@ -79,8 +96,8 @@ export class TestsService {
     });
   }
 
-  async publish(id: string, publishTestDto: PublishTestDto) {
-    await this.ensureTestExists(id);
+  async publish(id: string, publishTestDto: PublishTestDto, teacherId: string) {
+    await this.ensureTeacherOwnsTest(id, teacherId);
 
     return this.prisma.test.update({
       where: { id },
@@ -89,8 +106,8 @@ export class TestsService {
     });
   }
 
-  async remove(id: string) {
-    await this.ensureTestExists(id);
+  async remove(id: string, teacherId: string) {
+    await this.ensureTeacherOwnsTest(id, teacherId);
 
     await this.prisma.test.delete({
       where: { id },
@@ -99,21 +116,167 @@ export class TestsService {
     return { id };
   }
 
-  private buildWhere(query: FindTestsQueryDto): Prisma.TestWhereInput {
+  private async buildWhere(
+    query: FindTestsQueryDto,
+  ): Promise<Prisma.TestWhereInput> {
+    const categoryIds = this.resolveCategoryIds(query);
+    const difficulties = this.resolveDifficulties(query);
+    const questionCountIds = await this.findTestIdsByQuestionCount(
+      query.questionCounts,
+    );
+
+    if (questionCountIds && questionCountIds.length === 0) {
+      return { id: { in: [] } };
+    }
+
+    const and: Prisma.TestWhereInput[] = [];
+
+    if (query.durations?.length) {
+      and.push(this.buildDurationWhere(query.durations));
+    }
+
+    const ratingWhere = this.buildRatingWhere(query.rating);
+
+    if (Object.keys(ratingWhere).length) {
+      and.push(ratingWhere);
+    }
+
+    if (query.search) {
+      and.push({
+        OR: [
+          { title: { contains: query.search, mode: 'insensitive' } },
+          { description: { contains: query.search, mode: 'insensitive' } },
+        ],
+      });
+    }
+
     return {
       authorId: query.authorId,
-      categoryId: query.categoryId,
-      difficulty: query.difficulty,
+      categoryId: categoryIds.length ? { in: categoryIds } : undefined,
+      difficulty: difficulties.length ? { in: difficulties } : undefined,
       isPublished: query.isPublished,
-      ...(query.search
-        ? {
-            OR: [
-              { title: { contains: query.search, mode: 'insensitive' } },
-              { description: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
+      ...(questionCountIds ? { id: { in: questionCountIds } } : {}),
+      ...(and.length ? { AND: and } : {}),
     };
+  }
+
+  private buildDurationWhere(
+    durations?: DurationFilter[],
+  ): Prisma.TestWhereInput {
+    if (!durations?.length) {
+      return {};
+    }
+
+    return {
+      OR: durations.map((duration) => {
+        switch (duration) {
+          case DurationFilter.UNDER_15:
+            return { timeLimit: { lt: 15 } };
+          case DurationFilter.FROM_15_TO_30:
+            return { timeLimit: { gte: 15, lte: 30 } };
+          case DurationFilter.FROM_31_TO_60:
+            return { timeLimit: { gte: 31, lte: 60 } };
+          case DurationFilter.OVER_60:
+            return { timeLimit: { gt: 60 } };
+        }
+      }),
+    };
+  }
+
+  private buildRatingWhere(rating?: RatingFilter): Prisma.TestWhereInput {
+    switch (rating) {
+      case RatingFilter.THREE_PLUS:
+        return { averageRating: { gte: 3 } };
+      case RatingFilter.FOUR_PLUS:
+        return { averageRating: { gte: 4 } };
+      case RatingFilter.FIVE:
+        return { averageRating: { gte: 5 } };
+      case RatingFilter.ANY:
+      default:
+        return {};
+    }
+  }
+
+  private buildOrderBy(query: FindTestsQueryDto) {
+    if (query.sortBy) {
+      return [
+        { [query.sortBy]: query.sortOrder ?? 'desc' },
+      ] satisfies Prisma.TestOrderByWithRelationInput[];
+    }
+
+    switch (query.sort ?? TestSortOption.NEWEST_FIRST) {
+      case TestSortOption.MOST_POPULAR:
+        return [
+          { ratingCount: 'desc' },
+          { averageRating: 'desc' },
+          { createdAt: 'desc' },
+        ] satisfies Prisma.TestOrderByWithRelationInput[];
+      case TestSortOption.HIGHEST_RATED:
+        return [
+          { averageRating: 'desc' },
+          { ratingCount: 'desc' },
+          { createdAt: 'desc' },
+        ] satisfies Prisma.TestOrderByWithRelationInput[];
+      case TestSortOption.SHORTEST_FIRST:
+        return [
+          { timeLimit: { sort: 'asc', nulls: 'last' } },
+          { title: 'asc' },
+        ] satisfies Prisma.TestOrderByWithRelationInput[];
+      case TestSortOption.A_TO_Z:
+        return [
+          { title: 'asc' },
+        ] satisfies Prisma.TestOrderByWithRelationInput[];
+      case TestSortOption.NEWEST_FIRST:
+      default:
+        return [
+          { createdAt: 'desc' },
+        ] satisfies Prisma.TestOrderByWithRelationInput[];
+    }
+  }
+
+  private resolveCategoryIds(query: FindTestsQueryDto) {
+    return [
+      ...(query.categoryIds ?? []),
+      ...(query.categoryId ? [query.categoryId] : []),
+    ];
+  }
+
+  private resolveDifficulties(query: FindTestsQueryDto) {
+    return [
+      ...(query.difficulties ?? []),
+      ...(query.difficulty ? [query.difficulty] : []),
+    ];
+  }
+
+  private async findTestIdsByQuestionCount(
+    filters?: QuestionCountFilter[],
+  ): Promise<string[] | undefined> {
+    if (!filters?.length) {
+      return undefined;
+    }
+
+    const havingParts = filters.map((filter) => {
+      switch (filter) {
+        case QuestionCountFilter.FROM_1_TO_10:
+          return Prisma.sql`COUNT(q.id) BETWEEN 1 AND 10`;
+        case QuestionCountFilter.FROM_11_TO_30:
+          return Prisma.sql`COUNT(q.id) BETWEEN 11 AND 30`;
+        case QuestionCountFilter.FROM_31_TO_50:
+          return Prisma.sql`COUNT(q.id) BETWEEN 31 AND 50`;
+        case QuestionCountFilter.OVER_50:
+          return Prisma.sql`COUNT(q.id) > 50`;
+      }
+    });
+
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT t.id
+      FROM "Test" t
+      LEFT JOIN "Question" q ON q."testId" = t.id
+      GROUP BY t.id
+      HAVING ${Prisma.join(havingParts, ' OR ')}
+    `;
+
+    return rows.map((row) => row.id);
   }
 
   private defaultTestArgs() {
@@ -150,18 +313,38 @@ export class TestsService {
     }
   }
 
-  private async ensureAuthorCanCreateTests(authorId: string) {
+  private async ensureTeacherOwnsTest(id: string, teacherId: string) {
+    const test = await this.prisma.test.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        authorId: true,
+      },
+    });
+
+    if (!test) {
+      throw new NotFoundException(`Test with id "${id}" was not found`);
+    }
+
+    if (test.authorId !== teacherId) {
+      throw new ForbiddenException('You can manage only your own tests');
+    }
+  }
+
+  private async ensureTeacherCanCreateTests(authorId: string) {
     const author = await this.prisma.user.findUnique({
       where: { id: authorId },
       select: { id: true, role: true },
     });
 
     if (!author) {
-      throw new BadRequestException(`Author with id "${authorId}" was not found`);
+      throw new BadRequestException(
+        `Author with id "${authorId}" was not found`,
+      );
     }
 
-    if (author.role === Role.STUDENT) {
-      throw new BadRequestException('Only teachers and admins can create tests');
+    if (author.role !== Role.TEACHER) {
+      throw new BadRequestException('Only teachers can create tests');
     }
   }
 

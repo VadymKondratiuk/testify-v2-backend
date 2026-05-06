@@ -4,15 +4,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'crypto';
-import { promisify } from 'util';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { FindUsersQueryDto } from './dto/find-users-query.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
-const scrypt = promisify(scryptCallback);
-const passwordKeyLength = 64;
+const bcryptSaltRounds = 12;
 
 @Injectable()
 export class UsersService {
@@ -181,23 +179,7 @@ export class UsersService {
   }
 
   async verifyPassword(plainPassword: string, storedPassword: string) {
-    const [salt, key] = storedPassword.split(':');
-
-    if (!salt || !key) {
-      return false;
-    }
-
-    const hashedBuffer = (await scrypt(
-      plainPassword,
-      salt,
-      passwordKeyLength,
-    )) as Buffer;
-    const storedBuffer = Buffer.from(key, 'hex');
-
-    return (
-      storedBuffer.length === hashedBuffer.length &&
-      timingSafeEqual(storedBuffer, hashedBuffer)
-    );
+    return bcrypt.compare(plainPassword, storedPassword);
   }
 
   private buildWhere(query: FindUsersQueryDto): Prisma.UserWhereInput {
@@ -246,14 +228,7 @@ export class UsersService {
   }
 
   private async hashPassword(password: string) {
-    const salt = randomBytes(16).toString('hex');
-    const hashedPassword = (await scrypt(
-      password,
-      salt,
-      passwordKeyLength,
-    )) as Buffer;
-
-    return `${salt}:${hashedPassword.toString('hex')}`;
+    return bcrypt.hash(password, bcryptSaltRounds);
   }
 
   private handleKnownRequestError(error: unknown) {
