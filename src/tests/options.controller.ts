@@ -34,11 +34,15 @@ export class OptionsController {
   }
 
   @Get()
+  @UseGuards(AtAuthGuard, RolesGuard)
+  @Roles(Role.TEACHER, Role.ADMIN)
   findAll(@Query('questionId') questionId?: string) {
     return this.optionsService.findAll(questionId);
   }
 
   @Get(':id')
+  @UseGuards(AtAuthGuard, RolesGuard)
+  @Roles(Role.TEACHER, Role.ADMIN)
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.optionsService.findOne(id);
   }

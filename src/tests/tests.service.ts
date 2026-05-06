@@ -84,6 +84,43 @@ export class TestsService {
     return test;
   }
 
+  async findForTaking(id: string) {
+    const test = await this.prisma.test.findUnique({
+      where: { id },
+      include: {
+        category: true,
+        questions: {
+          select: {
+            id: true,
+            text: true,
+            type: true,
+            points: true,
+            tags: true,
+            options: {
+              select: {
+                id: true,
+                text: true,
+                questionId: true,
+              },
+              orderBy: { text: 'asc' },
+            },
+          },
+          orderBy: { text: 'asc' },
+        },
+      },
+    });
+
+    if (!test) {
+      throw new NotFoundException(`Test with id "${id}" was not found`);
+    }
+
+    if (!test.isPublished) {
+      throw new NotFoundException(`Test with id "${id}" was not found`);
+    }
+
+    return test;
+  }
+
   async update(id: string, updateTestDto: UpdateTestDto, teacherId: string) {
     await this.ensureTeacherOwnsTest(id, teacherId);
 

@@ -34,11 +34,15 @@ export class QuestionsController {
   }
 
   @Get()
+  @UseGuards(AtAuthGuard, RolesGuard)
+  @Roles(Role.TEACHER, Role.ADMIN)
   findAll(@Query('testId') testId?: string) {
     return this.questionsService.findAll(testId);
   }
 
   @Get(':id')
+  @UseGuards(AtAuthGuard, RolesGuard)
+  @Roles(Role.TEACHER, Role.ADMIN)
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.questionsService.findOne(id);
   }

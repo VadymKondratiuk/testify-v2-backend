@@ -40,6 +40,13 @@ export class TestsController {
     return this.testsService.findAll(query);
   }
 
+  @UseGuards(AtAuthGuard, RolesGuard)
+  @Roles(Role.STUDENT)
+  @Get(':id/take')
+  findForTaking(@Param('id', ParseUUIDPipe) id: string) {
+    return this.testsService.findForTaking(id);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.testsService.findOne(id);
