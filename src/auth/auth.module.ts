@@ -5,13 +5,20 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { RolesGuard } from './guards/roles.guard';
+import { SelfOrAdminGuard } from './guards/self-or-admin.guard';
 import { AtStrategy } from './strategies/at.strategy';
 import { RtStrategy } from './strategies/rt.strategy';
 
 @Module({
   imports: [PrismaModule, PassportModule, JwtModule.register({})],
   controllers: [AuthController],
-  providers: [AuthService, AtStrategy, RtStrategy, RolesGuard],
-  exports: [AuthService, RolesGuard],
+  providers: [
+    AuthService,
+    AtStrategy,
+    RtStrategy,
+    RolesGuard,
+    SelfOrAdminGuard,
+  ],
+  exports: [AuthService, RolesGuard, SelfOrAdminGuard],
 })
 export class AuthModule {}

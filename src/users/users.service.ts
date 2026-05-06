@@ -1,10 +1,12 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { JwtPayload } from '../auth/types/jwt-payload.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { FindUsersQueryDto } from './dto/find-users-query.dto';
@@ -82,13 +84,21 @@ export class UsersService {
     });
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto) {
+  async update(
+    id: string,
+    updateUserDto: UpdateUserDto,
+    currentUser: JwtPayload,
+  ) {
     await this.ensureUserExists(id);
+
+    if (updateUserDto.role && currentUser.role !== Role.ADMIN) {
+      throw new ForbiddenException('Only admins can change user roles');
+    }
 
     const data: Prisma.UserUpdateInput = {
       email: updateUserDto.email,
       name: updateUserDto.name,
-      role: updateUserDto.role,
+      role: currentUser.role === Role.ADMIN ? updateUserDto.role : undefined,
       ...(updateUserDto.password
         ? { password: await this.hashPassword(updateUserDto.password) }
         : {}),
@@ -106,7 +116,11 @@ export class UsersService {
     }
   }
 
-  async remove(id: string) {
+  async remove(id: string, currentUser: JwtPayload) {
+    if (currentUser.sub === id) {
+      throw new ForbiddenException('Admins cannot delete their own account');
+    }
+
     await this.ensureUserExists(id);
 
     await this.prisma.user.delete({
