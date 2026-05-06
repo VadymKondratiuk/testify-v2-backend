@@ -226,6 +226,20 @@ describe('Testify API (e2e)', () => {
       });
   });
 
+  it('returns normalized tags with usage counts', async () => {
+    await request(app.getHttpServer())
+      .get('/tags?search=single')
+      .expect(200)
+      .expect(({ body }) => {
+        const tag = body.items.find(
+          (item: { name: string }) => item.name === 'single-choice',
+        );
+
+        expect(tag).toBeTruthy();
+        expect(tag._count.questions).toBe(1);
+      });
+  });
+
   it('lets a student submit an attempt and receive a scored result', async () => {
     const startResponse = await request(app.getHttpServer())
       .post(`/tests/${testId}/attempts/start`)
