@@ -534,6 +534,25 @@ export class AttemptsService {
             timeLimit: true,
             authorId: true,
             category: true,
+            questions: {
+              select: {
+                id: true,
+                text: true,
+                type: true,
+                points: true,
+                teacherInsight: true,
+                tags: true,
+                options: {
+                  select: {
+                    id: true,
+                    text: true,
+                    isCorrect: true,
+                  },
+                  orderBy: { text: 'asc' },
+                },
+              },
+              orderBy: { text: 'asc' },
+            },
           },
         },
         userAnswers: {
@@ -546,6 +565,14 @@ export class AttemptsService {
                 points: true,
                 teacherInsight: true,
                 tags: true,
+                options: {
+                  select: {
+                    id: true,
+                    text: true,
+                    isCorrect: true,
+                  },
+                  orderBy: { text: 'asc' },
+                },
               },
             },
             option: {
