@@ -28,7 +28,7 @@ type EvaluatedUserAnswer = Omit<
 export class AttemptsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async start(testId: string, studentId: string) {
+  async start(testId: string, userId: string) {
     const test = await this.prisma.test.findUnique({
       where: { id: testId },
       include: {
@@ -69,7 +69,7 @@ export class AttemptsService {
 
     const attempt = await this.prisma.attempt.create({
       data: {
-        userId: studentId,
+        userId,
         testId,
         maxScore,
         passingScore: test.passingScore,
@@ -107,7 +107,7 @@ export class AttemptsService {
   async submit(
     id: string,
     submitAttemptDto: SubmitAttemptDto,
-    studentId: string,
+    userId: string,
   ) {
     const attempt = await this.prisma.attempt.findUnique({
       where: { id },
@@ -129,7 +129,7 @@ export class AttemptsService {
       throw new NotFoundException(`Attempt with id "${id}" was not found`);
     }
 
-    if (attempt.userId !== studentId) {
+    if (attempt.userId !== userId) {
       throw new ForbiddenException('You can submit only your own attempts');
     }
 
@@ -172,11 +172,11 @@ export class AttemptsService {
     });
   }
 
-  async findMy(studentId: string, query: FindMyAttemptsQueryDto) {
+  async findMy(userId: string, query: FindMyAttemptsQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const where = {
-      userId: studentId,
+      userId,
       ...(query.status === MyAttemptStatus.PASSED
         ? { isPassed: true, completedAt: { not: null } }
         : {}),
@@ -263,7 +263,7 @@ export class AttemptsService {
       return attempt;
     }
 
-    if (user.role === Role.STUDENT && attempt.userId === user.sub) {
+    if (attempt.userId === user.sub) {
       return attempt;
     }
 

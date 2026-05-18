@@ -52,7 +52,7 @@ export class TestsController {
   }
 
   @UseGuards(AtAuthGuard, RolesGuard)
-  @Roles(Role.STUDENT)
+  @Roles(Role.STUDENT, Role.TEACHER, Role.ADMIN)
   @Get(':id/take')
   findForTaking(@Param('id', ParseUUIDPipe) id: string) {
     return this.testsService.findForTaking(id);

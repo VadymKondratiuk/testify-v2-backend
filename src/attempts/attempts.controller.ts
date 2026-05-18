@@ -24,32 +24,32 @@ import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 export class AttemptsController {
   constructor(private readonly attemptsService: AttemptsService) {}
 
-  @Roles(Role.STUDENT)
+  @Roles(Role.STUDENT, Role.TEACHER, Role.ADMIN)
   @Post('tests/:testId/attempts/start')
   start(
     @Param('testId', ParseUUIDPipe) testId: string,
-    @GetCurrentUserId() studentId: string,
+    @GetCurrentUserId() userId: string,
   ) {
-    return this.attemptsService.start(testId, studentId);
+    return this.attemptsService.start(testId, userId);
   }
 
-  @Roles(Role.STUDENT)
+  @Roles(Role.STUDENT, Role.TEACHER, Role.ADMIN)
   @Post('attempts/:id/submit')
   submit(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() submitAttemptDto: SubmitAttemptDto,
-    @GetCurrentUserId() studentId: string,
+    @GetCurrentUserId() userId: string,
   ) {
-    return this.attemptsService.submit(id, submitAttemptDto, studentId);
+    return this.attemptsService.submit(id, submitAttemptDto, userId);
   }
 
-  @Roles(Role.STUDENT)
+  @Roles(Role.STUDENT, Role.TEACHER, Role.ADMIN)
   @Get('attempts/my')
   findMy(
     @Query() query: FindMyAttemptsQueryDto,
-    @GetCurrentUserId() studentId: string,
+    @GetCurrentUserId() userId: string,
   ) {
-    return this.attemptsService.findMy(studentId, query);
+    return this.attemptsService.findMy(userId, query);
   }
 
   @Roles(Role.STUDENT, Role.TEACHER, Role.ADMIN)
