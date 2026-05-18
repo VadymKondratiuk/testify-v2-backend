@@ -17,6 +17,7 @@ import { AtAuthGuard } from '../auth/guards/at-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SelfOrAdminGuard } from '../auth/guards/self-or-admin.guard';
 import type { JwtPayload } from '../auth/types/jwt-payload.type';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { FindUsersQueryDto } from './dto/find-users-query.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -62,6 +63,15 @@ export class UsersController {
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.findOne(id);
+  }
+
+  @UseGuards(AtAuthGuard, SelfOrAdminGuard)
+  @Patch(':id/password')
+  changePassword(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
+    return this.usersService.changePassword(id, changePasswordDto);
   }
 
   @UseGuards(AtAuthGuard, SelfOrAdminGuard)

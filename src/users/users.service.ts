@@ -3,11 +3,13 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { JwtPayload } from '../auth/types/jwt-payload.type';
 import { PrismaService } from '../prisma/prisma.service';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { FindUsersQueryDto } from './dto/find-users-query.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -169,9 +171,6 @@ export class UsersService {
       email: updateUserDto.email,
       name: updateUserDto.name,
       role: currentUser.role === Role.ADMIN ? updateUserDto.role : undefined,
-      ...(updateUserDto.password
-        ? { password: await this.hashPassword(updateUserDto.password) }
-        : {}),
     };
 
     try {
@@ -184,6 +183,37 @@ export class UsersService {
       this.handleKnownRequestError(error);
       throw error;
     }
+  }
+
+  async changePassword(id: string, changePasswordDto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        password: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with id "${id}" was not found`);
+    }
+
+    const isCurrentPasswordValid = await this.verifyPassword(
+      changePasswordDto.currentPassword,
+      user.password,
+    );
+
+    if (!isCurrentPasswordValid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    return this.prisma.user.update({
+      where: { id },
+      data: {
+        password: await this.hashPassword(changePasswordDto.newPassword),
+      },
+      ...this.defaultUserArgs(),
+    });
   }
 
   async remove(id: string, currentUser: JwtPayload) {
