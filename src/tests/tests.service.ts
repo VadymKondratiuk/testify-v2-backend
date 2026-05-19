@@ -174,8 +174,12 @@ export class TestsService {
     return test;
   }
 
-  async update(id: string, updateTestDto: UpdateTestDto, teacherId: string) {
-    await this.ensureTeacherOwnsTest(id, teacherId);
+  async update(
+    id: string,
+    updateTestDto: UpdateTestDto,
+    currentUser: { sub: string; role: Role },
+  ) {
+    await this.ensureUserCanManageTest(id, currentUser);
 
     await this.ensureCategoryExists(updateTestDto.categoryId);
 
@@ -186,8 +190,12 @@ export class TestsService {
     });
   }
 
-  async publish(id: string, publishTestDto: PublishTestDto, teacherId: string) {
-    await this.ensureTeacherOwnsTest(id, teacherId);
+  async publish(
+    id: string,
+    publishTestDto: PublishTestDto,
+    currentUser: { sub: string; role: Role },
+  ) {
+    await this.ensureUserCanManageTest(id, currentUser);
 
     if (publishTestDto.isPublished) {
       await this.ensureTestCanBePublished(id);
@@ -200,8 +208,8 @@ export class TestsService {
     });
   }
 
-  async remove(id: string, teacherId: string) {
-    await this.ensureTeacherOwnsTest(id, teacherId);
+  async remove(id: string, currentUser: { sub: string; role: Role }) {
+    await this.ensureUserCanManageTest(id, currentUser);
     await this.ensureTestHasNoAttempts(id);
 
     await this.prisma.test.delete({
@@ -420,7 +428,10 @@ export class TestsService {
     }
   }
 
-  private async ensureTeacherOwnsTest(id: string, teacherId: string) {
+  private async ensureUserCanManageTest(
+    id: string,
+    currentUser: { sub: string; role: Role },
+  ) {
     const test = await this.prisma.test.findUnique({
       where: { id },
       select: {
@@ -433,7 +444,11 @@ export class TestsService {
       throw new NotFoundException(`Test with id "${id}" was not found`);
     }
 
-    if (test.authorId !== teacherId) {
+    if (currentUser.role === Role.ADMIN) {
+      return;
+    }
+
+    if (test.authorId !== currentUser.sub) {
       throw new ForbiddenException('You can manage only your own tests');
     }
   }

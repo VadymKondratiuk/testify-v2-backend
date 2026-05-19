@@ -11,10 +11,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
+import { GetCurrentUser } from '../auth/decorators/get-current-user.decorator';
 import { GetCurrentUserId } from '../auth/decorators/get-current-user-id.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { AtAuthGuard } from '../auth/guards/at-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import type { JwtPayload } from '../auth/types/jwt-payload.type';
 import { TestsService } from './tests.service';
 import { CreateTestDto } from './dto/create-test.dto';
 import { FindMyTestsQueryDto } from './dto/find-my-tests-query.dto';
@@ -64,34 +66,34 @@ export class TestsController {
   }
 
   @UseGuards(AtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER)
+  @Roles(Role.TEACHER, Role.ADMIN)
   @Patch(':id')
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateTestDto: UpdateTestDto,
-    @GetCurrentUserId() teacherId: string,
+    @GetCurrentUser() currentUser: JwtPayload,
   ) {
-    return this.testsService.update(id, updateTestDto, teacherId);
+    return this.testsService.update(id, updateTestDto, currentUser);
   }
 
   @UseGuards(AtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER)
+  @Roles(Role.TEACHER, Role.ADMIN)
   @Patch(':id/publish')
   publish(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() publishTestDto: PublishTestDto,
-    @GetCurrentUserId() teacherId: string,
+    @GetCurrentUser() currentUser: JwtPayload,
   ) {
-    return this.testsService.publish(id, publishTestDto, teacherId);
+    return this.testsService.publish(id, publishTestDto, currentUser);
   }
 
   @UseGuards(AtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER)
+  @Roles(Role.TEACHER, Role.ADMIN)
   @Delete(':id')
   remove(
     @Param('id', ParseUUIDPipe) id: string,
-    @GetCurrentUserId() teacherId: string,
+    @GetCurrentUser() currentUser: JwtPayload,
   ) {
-    return this.testsService.remove(id, teacherId);
+    return this.testsService.remove(id, currentUser);
   }
 }
