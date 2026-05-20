@@ -77,6 +77,7 @@ export class TestsService {
     const limit = query.limit ?? 20;
     const where: Prisma.TestWhereInput = {
       authorId: teacherId,
+      deletedAt: null,
       ...(query.search
         ? {
             OR: [
@@ -130,7 +131,7 @@ export class TestsService {
       ...this.defaultTestArgs(),
     });
 
-    if (!test) {
+    if (!test || test.deletedAt) {
       throw new NotFoundException(`Test with id "${id}" was not found`);
     }
 
@@ -163,7 +164,7 @@ export class TestsService {
       },
     });
 
-    if (!test) {
+    if (!test || test.deletedAt) {
       throw new NotFoundException(`Test with id "${id}" was not found`);
     }
 
@@ -179,7 +180,8 @@ export class TestsService {
     updateTestDto: UpdateTestDto,
     currentUser: { sub: string; role: Role },
   ) {
-    await this.ensureUserCanManageTest(id, currentUser);
+    const test = await this.ensureUserCanManageTest(id, currentUser);
+    this.ensureTestIsDraft(test.isPublished);
 
     await this.ensureCategoryExists(updateTestDto.categoryId);
 
@@ -209,26 +211,23 @@ export class TestsService {
   }
 
   async remove(id: string, currentUser: { sub: string; role: Role }) {
-    await this.ensureUserCanManageTest(id, currentUser);
-    await this.ensureTestHasNoAttempts(id);
+    const test = await this.ensureUserCanManageTest(id, currentUser);
 
-    await this.prisma.test.delete({
-      where: { id },
-    });
+    if (await this.shouldSoftDeleteTest(id, test.isPublished)) {
+      await this.prisma.test.update({
+        where: { id },
+        data: {
+          deletedAt: new Date(),
+          isPublished: false,
+        },
+      });
 
-    return { id };
-  }
-
-  private async ensureTestHasNoAttempts(id: string) {
-    const attemptsCount = await this.prisma.attempt.count({
-      where: { testId: id },
-    });
-
-    if (attemptsCount > 0) {
-      throw new BadRequestException(
-        'Test cannot be deleted because it already has attempts',
-      );
+      return { id, deletionMode: 'archived' as const };
     }
+
+    await this.prisma.test.delete({ where: { id } });
+
+    return { id, deletionMode: 'deleted' as const };
   }
 
   private async buildWhere(
@@ -266,6 +265,7 @@ export class TestsService {
     }
 
     return {
+      deletedAt: null,
       authorId: query.authorId,
       categoryId: categoryIds.length ? { in: categoryIds } : undefined,
       difficulty: difficulties.length ? { in: difficulties } : undefined,
@@ -387,6 +387,7 @@ export class TestsService {
       SELECT t.id
       FROM "Test" t
       LEFT JOIN "Question" q ON q."testId" = t.id
+      WHERE t."deletedAt" IS NULL
       GROUP BY t.id
       HAVING ${Prisma.join(havingParts, ' OR ')}
     `;
@@ -437,19 +438,31 @@ export class TestsService {
       select: {
         id: true,
         authorId: true,
+        isPublished: true,
+        deletedAt: true,
       },
     });
 
-    if (!test) {
+    if (!test || test.deletedAt) {
       throw new NotFoundException(`Test with id "${id}" was not found`);
     }
 
     if (currentUser.role === Role.ADMIN) {
-      return;
+      return test;
     }
 
     if (test.authorId !== currentUser.sub) {
       throw new ForbiddenException('You can manage only your own tests');
+    }
+
+    return test;
+  }
+
+  private ensureTestIsDraft(isPublished: boolean) {
+    if (isPublished) {
+      throw new BadRequestException(
+        'Published tests cannot be modified. Unpublish the test first',
+      );
     }
   }
 
@@ -466,6 +479,10 @@ export class TestsService {
     });
 
     if (!test) {
+      throw new NotFoundException(`Test with id "${id}" was not found`);
+    }
+
+    if (test.deletedAt) {
       throw new NotFoundException(`Test with id "${id}" was not found`);
     }
 
@@ -570,5 +587,34 @@ export class TestsService {
         `Category with id "${categoryId}" was not found`,
       );
     }
+  }
+
+  private async shouldSoftDeleteTest(id: string, isPublished: boolean) {
+    if (isPublished) {
+      return true;
+    }
+
+    const test = await this.prisma.test.findUnique({
+      where: { id },
+      select: {
+        _count: {
+          select: {
+            attempts: true,
+            ratings: true,
+            recommendationEvents: true,
+          },
+        },
+      },
+    });
+
+    if (!test) {
+      throw new NotFoundException(`Test with id "${id}" was not found`);
+    }
+
+    return (
+      test._count.attempts > 0 ||
+      test._count.ratings > 0 ||
+      test._count.recommendationEvents > 0
+    );
   }
 }

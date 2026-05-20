@@ -59,7 +59,7 @@ export class AttemptsService {
       },
     });
 
-    if (!test) {
+    if (!test || test.deletedAt) {
       throw new NotFoundException(`Test with id "${testId}" was not found`);
     }
 

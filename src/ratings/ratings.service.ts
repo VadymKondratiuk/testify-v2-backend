@@ -175,10 +175,10 @@ export class RatingsService {
   private async ensureTestExists(testId: string) {
     const test = await this.prisma.test.findUnique({
       where: { id: testId },
-      select: { id: true },
+      select: { id: true, deletedAt: true },
     });
 
-    if (!test) {
+    if (!test || test.deletedAt) {
       throw new NotFoundException(`Test with id "${testId}" was not found`);
     }
   }
@@ -189,10 +189,11 @@ export class RatingsService {
       select: {
         id: true,
         isPublished: true,
+        deletedAt: true,
       },
     });
 
-    if (!test || !test.isPublished) {
+    if (!test || test.deletedAt || !test.isPublished) {
       throw new NotFoundException(`Test with id "${testId}" was not found`);
     }
   }

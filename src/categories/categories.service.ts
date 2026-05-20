@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -84,37 +83,25 @@ export class CategoriesService {
   }
 
   async remove(id: string) {
-    await this.ensureCategoryCanBeDeleted(id);
+    await this.ensureCategoryExists(id);
 
-    await this.prisma.category.delete({
-      where: { id },
-    });
-
-    return { id };
-  }
-
-  private async ensureCategoryCanBeDeleted(id: string) {
-    const category = await this.prisma.category.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        _count: {
-          select: {
-            tests: true,
-          },
+    const result = await this.prisma.$transaction(async (tx) => {
+      const detachedTests = await tx.test.updateMany({
+        where: { categoryId: id },
+        data: {
+          categoryId: null,
+          isPublished: false,
         },
-      },
+      });
+
+      await tx.category.delete({
+        where: { id },
+      });
+
+      return detachedTests;
     });
 
-    if (!category) {
-      throw new NotFoundException(`Category with id "${id}" was not found`);
-    }
-
-    if (category._count.tests > 0) {
-      throw new BadRequestException(
-        'Category cannot be deleted because it has tests',
-      );
-    }
+    return { id, detachedTestsCount: result.count };
   }
 
   private buildWhere(query: FindCategoriesQueryDto): Prisma.CategoryWhereInput {

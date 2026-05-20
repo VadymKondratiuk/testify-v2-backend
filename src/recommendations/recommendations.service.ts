@@ -60,6 +60,7 @@ export class RecommendationsService {
       }),
       this.prisma.test.findMany({
         where: {
+          deletedAt: null,
           isPublished: true,
           questions: {
             some: {},
@@ -137,10 +138,10 @@ export class RecommendationsService {
   ) {
     const test = await this.prisma.test.findUnique({
       where: { id: createEventDto.testId },
-      select: { id: true },
+      select: { id: true, deletedAt: true },
     });
 
-    if (!test) {
+    if (!test || test.deletedAt) {
       throw new NotFoundException(
         `Test with id "${createEventDto.testId}" was not found`,
       );

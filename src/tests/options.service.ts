@@ -105,6 +105,7 @@ export class OptionsService {
                 title: true,
                 authorId: true,
                 isPublished: true,
+                deletedAt: true,
               },
             },
           },
@@ -123,6 +124,7 @@ export class OptionsService {
               select: {
                 authorId: true,
                 isPublished: true,
+                deletedAt: true,
               },
             },
           },
@@ -136,6 +138,7 @@ export class OptionsService {
 
     this.ensureQuestionCanHaveOptions(option.question.type);
     this.ensureTestOwnership(option.question.test.authorId, teacherId);
+    this.ensureTestIsActive(option.question.test.deletedAt);
     this.ensureTestIsDraft(option.question.test.isPublished);
 
     return option;
@@ -152,6 +155,7 @@ export class OptionsService {
           select: {
             authorId: true,
             isPublished: true,
+            deletedAt: true,
           },
         },
       },
@@ -165,6 +169,7 @@ export class OptionsService {
 
     this.ensureQuestionCanHaveOptions(question.type);
     this.ensureTestOwnership(question.test.authorId, teacherId);
+    this.ensureTestIsActive(question.test.deletedAt);
     this.ensureTestIsDraft(question.test.isPublished);
 
     return question;
@@ -248,6 +253,12 @@ export class OptionsService {
       throw new BadRequestException(
         'Published tests cannot be modified. Unpublish the test first',
       );
+    }
+  }
+
+  private ensureTestIsActive(deletedAt: Date | null) {
+    if (deletedAt) {
+      throw new NotFoundException('Test was not found');
     }
   }
 }

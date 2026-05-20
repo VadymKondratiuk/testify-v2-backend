@@ -69,12 +69,13 @@ model Test {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  deletedAt DateTime?
 
   authorId String
   author   User   @relation(fields: [authorId], references: [id])
 
   categoryId String?
-  category   Category? @relation(fields: [categoryId], references: [id])
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
   questions Question[]
   attempts  Attempt[]

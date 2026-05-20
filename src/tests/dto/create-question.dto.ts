@@ -25,6 +25,7 @@ const normalizeTagNames = ({ value }: { value: unknown }) => {
     .map((item) =>
       String(item)
         .trim()
+        .replace(/^#+/, '')
         .replace(/\s+/g, ' ')
         .toLowerCase(),
     )

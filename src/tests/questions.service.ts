@@ -58,15 +58,6 @@ export class QuestionsService {
     }
 
     if (
-      updateQuestionDto.type === QuestionType.TEXT_ANSWER &&
-      question.options.length > 0
-    ) {
-      throw new BadRequestException(
-        'Remove options before changing question type to TEXT_ANSWER',
-      );
-    }
-
-    if (
       updateQuestionDto.type &&
       updateQuestionDto.type !== QuestionType.TEXT_ANSWER &&
       (updateQuestionDto.correctTextAnswer !== undefined ||
@@ -74,6 +65,20 @@ export class QuestionsService {
     ) {
       updateQuestionDto.correctTextAnswer = undefined;
       updateQuestionDto.acceptedTextAnswers = undefined;
+    }
+
+    if (updateQuestionDto.type === QuestionType.TEXT_ANSWER) {
+      return this.prisma.$transaction(async (tx) => {
+        await tx.option.deleteMany({
+          where: { questionId: id },
+        });
+
+        return tx.question.update({
+          where: { id },
+          data: this.buildUpdateQuestionData(updateQuestionDto),
+          ...this.defaultQuestionArgs(),
+        });
+      });
     }
 
     return this.prisma.question.update({
@@ -157,6 +162,7 @@ export class QuestionsService {
             title: true,
             isPublished: true,
             authorId: true,
+            deletedAt: true,
           },
         },
       },
@@ -173,6 +179,7 @@ export class QuestionsService {
             id: true,
             authorId: true,
             isPublished: true,
+            deletedAt: true,
           },
         },
       },
@@ -183,6 +190,7 @@ export class QuestionsService {
     }
 
     this.ensureTestOwnership(question.test.authorId, teacherId);
+    this.ensureTestIsActive(question.test.deletedAt);
     this.ensureTestIsDraft(question.test.isPublished);
 
     return question;
@@ -195,6 +203,7 @@ export class QuestionsService {
         id: true,
         authorId: true,
         isPublished: true,
+        deletedAt: true,
       },
     });
 
@@ -203,6 +212,7 @@ export class QuestionsService {
     }
 
     this.ensureTestOwnership(test.authorId, teacherId);
+    this.ensureTestIsActive(test.deletedAt);
     this.ensureTestIsDraft(test.isPublished);
   }
 
@@ -217,6 +227,12 @@ export class QuestionsService {
       throw new BadRequestException(
         'Published tests cannot be modified. Unpublish the test first',
       );
+    }
+  }
+
+  private ensureTestIsActive(deletedAt: Date | null) {
+    if (deletedAt) {
+      throw new NotFoundException('Test was not found');
     }
   }
 }
