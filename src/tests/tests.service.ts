@@ -499,6 +499,10 @@ export class TestsService {
           validationErrors.push(`${label} cannot have options`);
         }
 
+        if (!question.correctTextAnswer?.trim()) {
+          validationErrors.push(`${label} must have a correct text answer`);
+        }
+
         continue;
       }
 

@@ -355,9 +355,9 @@ export class AttemptsService {
       }
 
       const result = this.evaluateQuestion(question, answer);
+      score += result.earnedPoints;
 
       if (result.isCorrect) {
-        score += question.points;
         this.addStrongAreas(question, strongAreas);
       } else {
         this.addFocusAreas(question, focusAreas);
@@ -413,11 +413,13 @@ export class AttemptsService {
 
     return {
       isCorrect,
+      earnedPoints: isCorrect ? question.points : 0,
       userAnswers: [
         {
           questionId: question.id,
           optionId: optionIds[0],
           isCorrect,
+          earnedPoints: isCorrect ? question.points : 0,
         },
       ],
     };
@@ -448,13 +450,27 @@ export class AttemptsService {
       [...selectedOptionIds].every((optionId) =>
         correctOptionIds.has(optionId),
       );
+    const correctSelectedCount = [...selectedOptionIds].filter((optionId) =>
+      correctOptionIds.has(optionId),
+    ).length;
+    const incorrectSelectedCount = [...selectedOptionIds].filter(
+      (optionId) => !correctOptionIds.has(optionId),
+    ).length;
+    const rawScore = correctSelectedCount - incorrectSelectedCount;
+    const scoreRatio =
+      correctOptionIds.size === 0
+        ? 0
+        : Math.max(0, rawScore / correctOptionIds.size);
+    const earnedPoints = this.roundToTwo(question.points * scoreRatio);
 
     return {
       isCorrect,
+      earnedPoints,
       userAnswers: optionIds.map((optionId) => ({
         questionId: question.id,
         optionId,
         isCorrect,
+        earnedPoints,
       })),
     };
   }
@@ -464,6 +480,7 @@ export class AttemptsService {
     answer: SubmitAttemptAnswerDto,
   ) {
     const textAnswer = answer.textAnswer?.trim();
+    const correctTextAnswer = question.correctTextAnswer?.trim();
 
     if (!textAnswer) {
       throw new BadRequestException(
@@ -471,13 +488,30 @@ export class AttemptsService {
       );
     }
 
+    if (!correctTextAnswer) {
+      throw new BadRequestException(
+        `Question "${question.id}" does not have a correct text answer`,
+      );
+    }
+
+    const normalizedTextAnswer = this.normalizeTextAnswer(textAnswer);
+    const acceptedAnswers = [
+      correctTextAnswer,
+      ...question.acceptedTextAnswers,
+    ]
+      .map((acceptedAnswer) => this.normalizeTextAnswer(acceptedAnswer))
+      .filter((acceptedAnswer) => acceptedAnswer.length > 0);
+    const isCorrect = acceptedAnswers.includes(normalizedTextAnswer);
+
     return {
-      isCorrect: false,
+      isCorrect,
+      earnedPoints: isCorrect ? question.points : 0,
       userAnswers: [
         {
           questionId: question.id,
           textAnswer,
-          isCorrect: false,
+          isCorrect,
+          earnedPoints: isCorrect ? question.points : 0,
         },
       ],
     };
@@ -499,6 +533,10 @@ export class AttemptsService {
         `Option "${invalidOptionId}" does not belong to question "${question.id}"`,
       );
     }
+  }
+
+  private normalizeTextAnswer(value: string) {
+    return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
   }
 
   private addFocusAreas(question: AttemptQuestion, focusAreas: Set<string>) {
@@ -595,6 +633,8 @@ export class AttemptsService {
                 text: true,
                 type: true,
                 points: true,
+                correctTextAnswer: true,
+                acceptedTextAnswers: true,
                 teacherInsight: true,
                 tags: true,
                 options: {
@@ -618,6 +658,8 @@ export class AttemptsService {
                 text: true,
                 type: true,
                 points: true,
+                correctTextAnswer: true,
+                acceptedTextAnswers: true,
                 teacherInsight: true,
                 tags: true,
                 options: {

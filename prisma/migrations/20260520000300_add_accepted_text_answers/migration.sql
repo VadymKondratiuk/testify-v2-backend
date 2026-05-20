@@ -1,0 +1,1 @@
+ALTER TABLE "Question" ADD COLUMN "acceptedTextAnswers" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

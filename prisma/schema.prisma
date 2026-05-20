@@ -97,6 +97,8 @@ model Question {
   text   String
   type   QuestionType @default(SINGLE_CHOICE)
   points Int          @default(1)
+  correctTextAnswer String?
+  acceptedTextAnswers String[] @default([])
 
   testId String
   test   Test   @relation(fields: [testId], references: [id], onDelete: Cascade)
@@ -135,8 +137,8 @@ model Attempt {
   id String @id @default(uuid())
 
   // Бали
-  score    Int @default(0) // Набрані бали (напр., 6)
-  maxScore Int @default(0) // Максимальний бал (напр., 12)
+  score    Float @default(0) // Набрані бали (напр., 6)
+  maxScore Float @default(0) // Максимальний бал (напр., 12)
 
   // Статус проходження (НОВЕ)
   passingScore Int // Прохідний поріг у балах або відсотках на момент складання
@@ -163,6 +165,7 @@ model Attempt {
 model UserAnswer {
   id        String  @id @default(uuid())
   isCorrect Boolean @default(false) // Зручно для швидкої статистики
+  earnedPoints Float @default(0)
 
   attemptId String
   attempt   Attempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)

@@ -33,6 +33,18 @@ const normalizeTagNames = ({ value }: { value: unknown }) => {
   return [...new Set(normalizedTagNames)];
 };
 
+const normalizeTextAnswers = ({ value }: { value: unknown }) => {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  const normalizedAnswers = value
+    .map((item) => String(item).trim().replace(/\s+/g, ' '))
+    .filter((item) => item.length > 0);
+
+  return [...new Set(normalizedAnswers)];
+};
+
 export class CreateQuestionDto {
   @Transform(trimString)
   @IsString()
@@ -48,6 +60,20 @@ export class CreateQuestionDto {
   @IsInt()
   @Min(1)
   points?: number;
+
+  @IsOptional()
+  @Transform(trimString)
+  @IsString()
+  @MaxLength(1000)
+  correctTextAnswer?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @Transform(normalizeTextAnswers)
+  @IsString({ each: true })
+  @MaxLength(1000, { each: true })
+  acceptedTextAnswers?: string[];
 
   @IsUUID()
   testId!: string;

@@ -66,6 +66,16 @@ export class QuestionsService {
       );
     }
 
+    if (
+      updateQuestionDto.type &&
+      updateQuestionDto.type !== QuestionType.TEXT_ANSWER &&
+      (updateQuestionDto.correctTextAnswer !== undefined ||
+        updateQuestionDto.acceptedTextAnswers !== undefined)
+    ) {
+      updateQuestionDto.correctTextAnswer = undefined;
+      updateQuestionDto.acceptedTextAnswers = undefined;
+    }
+
     return this.prisma.question.update({
       where: { id },
       data: this.buildUpdateQuestionData(updateQuestionDto),
@@ -87,9 +97,14 @@ export class QuestionsService {
     dto: CreateQuestionDto,
   ): Prisma.QuestionCreateInput {
     const { tagNames, testId, ...questionData } = dto;
+    const isTextAnswer = questionData.type === QuestionType.TEXT_ANSWER;
 
     return {
       ...questionData,
+      correctTextAnswer: isTextAnswer ? questionData.correctTextAnswer : null,
+      acceptedTextAnswers: isTextAnswer
+        ? questionData.acceptedTextAnswers ?? []
+        : [],
       test: { connect: { id: testId } },
       ...(tagNames
         ? {
@@ -108,9 +123,15 @@ export class QuestionsService {
     dto: UpdateQuestionDto,
   ): Prisma.QuestionUpdateInput {
     const { tagNames, testId: _testId, ...questionData } = dto;
+    const shouldClearTextAnswer =
+      questionData.type !== undefined &&
+      questionData.type !== QuestionType.TEXT_ANSWER;
 
     return {
       ...questionData,
+      ...(shouldClearTextAnswer
+        ? { correctTextAnswer: null, acceptedTextAnswers: [] }
+        : {}),
       ...(tagNames
         ? {
             tags: {
