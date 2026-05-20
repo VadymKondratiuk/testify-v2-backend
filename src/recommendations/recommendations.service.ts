@@ -1,6 +1,14 @@
-import { Injectable } from '@nestjs/common';
-import { Difficulty, Prisma } from '@prisma/client';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  ContentBasedRecommendationEngine,
+  RecommendationCandidate,
+  ScoringAttempt,
+  ScoringTagMastery,
+  ScoringTest,
+} from './content-based-recommendation.engine';
+import { CreateRecommendationEventDto } from './dto/create-recommendation-event.dto';
 import { FindRecommendationsQueryDto } from './dto/find-recommendations-query.dto';
 
 type PublishedTest = Prisma.TestGetPayload<{
@@ -15,16 +23,12 @@ type UserAttemptSummary = Prisma.AttemptGetPayload<{
   include: { test: { select: { id: true; categoryId: true; difficulty: true } } };
 }>;
 
-type RecommendationCandidate = {
-  test: PublishedTest;
-  score: number;
-  matchedTags: string[];
-  reason: string;
-  recommendationType: 'knowledge_gap' | 'next_level' | 'popular';
-};
+type PublishedScoringTest = PublishedTest & ScoringTest;
 
 @Injectable()
 export class RecommendationsService {
+  private readonly engine = new ContentBasedRecommendationEngine();
+
   constructor(private readonly prisma: PrismaService) {}
 
   async findForUser(userId: string, query: FindRecommendationsQueryDto) {
@@ -79,9 +83,28 @@ export class RecommendationsService {
       }),
     ]);
 
-    const candidates = tests
-      .map((test) => this.scoreTest(test, tagMasteries, attempts))
-      .sort((a, b) => b.score - a.score)
+    const scoringTests = tests.map((test) => this.toScoringTest(test));
+    const scoringTagMasteries = tagMasteries.map((mastery) => ({
+      attemptsCount: mastery.attemptsCount,
+      masteryScore: mastery.masteryScore,
+      tag: {
+        id: mastery.tag.id,
+        name: mastery.tag.name,
+      },
+    })) satisfies ScoringTagMastery[];
+    const scoringAttempts = attempts.map((attempt) => ({
+      testId: attempt.testId,
+      score: attempt.score,
+      maxScore: attempt.maxScore,
+      isPassed: attempt.isPassed,
+      test: {
+        categoryId: attempt.test.categoryId,
+        difficulty: attempt.test.difficulty,
+      },
+    })) satisfies ScoringAttempt[];
+
+    const candidates = this.engine
+      .scoreTests(scoringTests, scoringTagMasteries, scoringAttempts)
       .slice(0, limit);
 
     await this.saveSnapshot(userId, placement, candidates);
@@ -108,71 +131,36 @@ export class RecommendationsService {
     };
   }
 
-  private scoreTest(
-    test: PublishedTest,
-    tagMasteries: Array<{
-      attemptsCount: number;
-      masteryScore: number;
-      tag: { id: string; name: string };
-    }>,
-    attempts: UserAttemptSummary[],
-  ): RecommendationCandidate {
-    const weakTagWeights = this.buildWeakTagWeights(tagMasteries);
-    const testTags = this.getUniqueTestTags(test);
-    const matchedTags = testTags.filter((tag) => weakTagWeights.has(tag.id));
-    const weakTagMatch = this.getWeakTagMatch(matchedTags, weakTagWeights);
-    const categoryMatch = this.getCategoryMatch(test.categoryId, attempts);
-    const difficultyMatch = this.getDifficultyMatch(test.difficulty, attempts);
-    const ratingScore = Math.min(test.averageRating / 5, 1);
-    const noveltyScore = attempts.some((attempt) => attempt.testId === test.id)
-      ? 0
-      : 1;
-    const alreadyPassedPenalty = attempts.some(
-      (attempt) => attempt.testId === test.id && attempt.isPassed,
-    )
-      ? 0.25
-      : 0;
-
-    const score = this.roundScore(
-      0.4 * weakTagMatch +
-        0.2 * categoryMatch +
-        0.15 * difficultyMatch +
-        0.1 * ratingScore +
-        0.1 * noveltyScore -
-        alreadyPassedPenalty,
-    );
-
-    return {
-      test,
-      score,
-      matchedTags: matchedTags.map((tag) => tag.name),
-      reason: this.buildReason(test, matchedTags, attempts),
-      recommendationType: this.getRecommendationType(matchedTags, attempts),
-    };
-  }
-
-  private buildWeakTagWeights(
-    tagMasteries: Array<{
-      attemptsCount: number;
-      masteryScore: number;
-      tag: { id: string };
-    }>,
+  async trackEvent(
+    userId: string,
+    createEventDto: CreateRecommendationEventDto,
   ) {
-    const weights = new Map<string, number>();
+    const test = await this.prisma.test.findUnique({
+      where: { id: createEventDto.testId },
+      select: { id: true },
+    });
 
-    for (const mastery of tagMasteries) {
-      const confidence = Math.min(1, mastery.attemptsCount / 5);
-      const weaknessScore = (1 - mastery.masteryScore) * confidence;
-
-      if (weaknessScore >= 0.15) {
-        weights.set(mastery.tag.id, weaknessScore);
-      }
+    if (!test) {
+      throw new NotFoundException(
+        `Test with id "${createEventDto.testId}" was not found`,
+      );
     }
 
-    return weights;
+    return this.prisma.recommendationEvent.create({
+      data: {
+        userId,
+        testId: createEventDto.testId,
+        placement: createEventDto.placement,
+        eventType: createEventDto.eventType,
+        metadata: {
+          source: createEventDto.source,
+          ...(createEventDto.metadata ?? {}),
+        },
+      },
+    });
   }
 
-  private getUniqueTestTags(test: PublishedTest) {
+  private toScoringTest(test: PublishedTest): PublishedScoringTest {
     const tagsById = new Map<string, { id: string; name: string }>();
 
     for (const question of test.questions) {
@@ -181,120 +169,17 @@ export class RecommendationsService {
       }
     }
 
-    return [...tagsById.values()];
-  }
-
-  private getWeakTagMatch(
-    matchedTags: Array<{ id: string }>,
-    weakTagWeights: Map<string, number>,
-  ) {
-    if (weakTagWeights.size === 0 || matchedTags.length === 0) {
-      return 0;
-    }
-
-    const matchedWeight = matchedTags.reduce(
-      (total, tag) => total + (weakTagWeights.get(tag.id) ?? 0),
-      0,
-    );
-    const totalWeight = [...weakTagWeights.values()].reduce(
-      (total, weight) => total + weight,
-      0,
-    );
-
-    return totalWeight === 0 ? 0 : Math.min(matchedWeight / totalWeight, 1);
-  }
-
-  private getCategoryMatch(categoryId: string | null, attempts: UserAttemptSummary[]) {
-    if (!categoryId || attempts.length === 0) {
-      return 0;
-    }
-
-    const matchingAttempts = attempts.filter(
-      (attempt) => attempt.test.categoryId === categoryId,
-    ).length;
-
-    return Math.min(matchingAttempts / 3, 1);
-  }
-
-  private getDifficultyMatch(
-    difficulty: Difficulty,
-    attempts: UserAttemptSummary[],
-  ) {
-    if (attempts.length === 0) {
-      return difficulty === Difficulty.BEGINNER ? 1 : 0.5;
-    }
-
-    const averageScore =
-      attempts.reduce(
-        (total, attempt) =>
-          total + this.toPercentage(attempt.score, attempt.maxScore),
-        0,
-      ) / attempts.length;
-    const latestDifficulty = attempts[0]?.test.difficulty ?? Difficulty.BEGINNER;
-    const targetDifficulty = this.getTargetDifficulty(
-      latestDifficulty,
-      averageScore,
-    );
-
-    return difficulty === targetDifficulty ? 1 : 0.35;
-  }
-
-  private getTargetDifficulty(current: Difficulty, averageScore: number) {
-    if (averageScore < 60) {
-      return current === Difficulty.ADVANCED
-        ? Difficulty.INTERMEDIATE
-        : Difficulty.BEGINNER;
-    }
-
-    if (averageScore >= 85) {
-      if (current === Difficulty.BEGINNER) {
-        return Difficulty.INTERMEDIATE;
-      }
-
-      return Difficulty.ADVANCED;
-    }
-
-    return current;
-  }
-
-  private buildReason(
-    test: PublishedTest,
-    matchedTags: Array<{ name: string }>,
-    attempts: UserAttemptSummary[],
-  ) {
-    if (matchedTags.length > 0) {
-      return `Recommended to practice ${matchedTags
-        .slice(0, 3)
-        .map((tag) => tag.name)
-        .join(', ')}.`;
-    }
-
-    if (attempts.length > 0 && attempts[0]?.test.categoryId === test.categoryId) {
-      return `Good next step in ${test.category?.name ?? 'this category'}.`;
-    }
-
-    return 'Popular test that fits your current learning profile.';
-  }
-
-  private getRecommendationType(
-    matchedTags: Array<{ name: string }>,
-    attempts: UserAttemptSummary[],
-  ): RecommendationCandidate['recommendationType'] {
-    if (matchedTags.length > 0) {
-      return 'knowledge_gap';
-    }
-
-    if (attempts.length > 0) {
-      return 'next_level';
-    }
-
-    return 'popular';
+    return {
+      ...test,
+      categoryName: test.category?.name,
+      tags: [...tagsById.values()],
+    };
   }
 
   private async saveSnapshot(
     userId: string,
     placement: string,
-    candidates: RecommendationCandidate[],
+    candidates: RecommendationCandidate<PublishedScoringTest>[],
   ) {
     await this.prisma.recommendationSnapshot.create({
       data: {
@@ -312,15 +197,4 @@ export class RecommendationsService {
     });
   }
 
-  private toPercentage(value: number, total: number) {
-    if (total === 0) {
-      return 0;
-    }
-
-    return (value / total) * 100;
-  }
-
-  private roundScore(value: number) {
-    return Math.max(0, Math.round(value * 10000) / 10000);
-  }
 }
