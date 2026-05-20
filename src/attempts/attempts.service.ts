@@ -8,6 +8,10 @@ import { Prisma, QuestionType, Role } from '@prisma/client';
 import { JwtPayload } from '../auth/types/jwt-payload.type';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  TagAnswerResult,
+  UserKnowledgeService,
+} from '../recommendations/user-knowledge.service';
+import {
   FindMyAttemptsQueryDto,
   MyAttemptStatus,
 } from './dto/find-my-attempts-query.dto';
@@ -26,7 +30,10 @@ type EvaluatedUserAnswer = Omit<
 
 @Injectable()
 export class AttemptsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly userKnowledgeService: UserKnowledgeService,
+  ) {}
 
   async start(testId: string, userId: string) {
     const test = await this.prisma.test.findUnique({
@@ -153,6 +160,12 @@ export class AttemptsService {
           })),
         });
       }
+
+      await this.userKnowledgeService.updateTagMastery(
+        userId,
+        evaluation.tagResults,
+        tx,
+      );
 
       return tx.attempt.update({
         where: { id: attempt.id },
@@ -311,6 +324,7 @@ export class AttemptsService {
     );
     let score = 0;
     const focusAreas = new Set<string>();
+    const tagResults: TagAnswerResult[] = [];
     const userAnswers: EvaluatedUserAnswer[] = [];
 
     for (const question of questions) {
@@ -318,6 +332,7 @@ export class AttemptsService {
 
       if (!answer) {
         this.addFocusAreas(question, focusAreas);
+        this.addTagResults(question, false, tagResults);
         continue;
       }
 
@@ -329,6 +344,8 @@ export class AttemptsService {
         this.addFocusAreas(question, focusAreas);
       }
 
+      this.addTagResults(question, result.isCorrect, tagResults);
+
       userAnswers.push(...result.userAnswers);
     }
 
@@ -336,6 +353,7 @@ export class AttemptsService {
       score,
       maxScore,
       focusAreas: [...focusAreas],
+      tagResults,
       userAnswers,
     };
   }
@@ -465,6 +483,19 @@ export class AttemptsService {
 
   private addFocusAreas(question: AttemptQuestion, focusAreas: Set<string>) {
     question.tags.forEach((tag) => focusAreas.add(tag.name));
+  }
+
+  private addTagResults(
+    question: AttemptQuestion,
+    isCorrect: boolean,
+    tagResults: TagAnswerResult[],
+  ) {
+    question.tags.forEach((tag) => {
+      tagResults.push({
+        tagId: tag.id,
+        isCorrect,
+      });
+    });
   }
 
   private buildStudyRecommendation(percentage: number, focusAreas: string[]) {
