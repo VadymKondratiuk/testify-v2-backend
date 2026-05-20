@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, QuestionType, Role } from '@prisma/client';
+import { AiStudyCoachService } from '../ai/ai-study-coach.service';
 import { JwtPayload } from '../auth/types/jwt-payload.type';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -32,6 +33,7 @@ type EvaluatedUserAnswer = Omit<
 export class AttemptsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly aiStudyCoachService: AiStudyCoachService,
     private readonly userKnowledgeService: UserKnowledgeService,
   ) {}
 
@@ -121,6 +123,7 @@ export class AttemptsService {
       include: {
         test: {
           include: {
+            category: true,
             questions: {
               include: {
                 options: true,
@@ -150,6 +153,23 @@ export class AttemptsService {
       evaluation.maxScore === 0
         ? 0
         : Math.round((evaluation.score / evaluation.maxScore) * 100);
+    const fallbackRecommendation = this.buildStudyRecommendation(
+      percentage,
+      evaluation.focusAreas,
+    );
+    const studyRecommendation =
+      await this.aiStudyCoachService.generateStudyRecommendation(
+        {
+          testTitle: attempt.test.title,
+          scorePercentage: percentage,
+          isPassed: percentage >= attempt.passingScore,
+          categoryName: attempt.test.category?.name,
+          difficulty: attempt.test.difficulty,
+          focusAreas: evaluation.focusAreas,
+          strongAreas: evaluation.strongAreas,
+        },
+        fallbackRecommendation,
+      );
 
     return this.prisma.$transaction(async (tx) => {
       if (evaluation.userAnswers.length > 0) {
@@ -175,10 +195,7 @@ export class AttemptsService {
           isPassed: percentage >= attempt.passingScore,
           completedAt: new Date(),
           focusAreas: evaluation.focusAreas,
-          studyRecommendation: this.buildStudyRecommendation(
-            percentage,
-            evaluation.focusAreas,
-          ),
+          studyRecommendation,
         },
         ...this.defaultAttemptArgs(),
       });
@@ -324,6 +341,7 @@ export class AttemptsService {
     );
     let score = 0;
     const focusAreas = new Set<string>();
+    const strongAreas = new Set<string>();
     const tagResults: TagAnswerResult[] = [];
     const userAnswers: EvaluatedUserAnswer[] = [];
 
@@ -340,6 +358,7 @@ export class AttemptsService {
 
       if (result.isCorrect) {
         score += question.points;
+        this.addStrongAreas(question, strongAreas);
       } else {
         this.addFocusAreas(question, focusAreas);
       }
@@ -353,6 +372,7 @@ export class AttemptsService {
       score,
       maxScore,
       focusAreas: [...focusAreas],
+      strongAreas: [...strongAreas],
       tagResults,
       userAnswers,
     };
@@ -483,6 +503,10 @@ export class AttemptsService {
 
   private addFocusAreas(question: AttemptQuestion, focusAreas: Set<string>) {
     question.tags.forEach((tag) => focusAreas.add(tag.name));
+  }
+
+  private addStrongAreas(question: AttemptQuestion, strongAreas: Set<string>) {
+    question.tags.forEach((tag) => strongAreas.add(tag.name));
   }
 
   private addTagResults(
