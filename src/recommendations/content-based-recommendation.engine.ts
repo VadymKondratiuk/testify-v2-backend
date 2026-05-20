@@ -17,6 +17,8 @@ export type ScoringTest = {
 
 export type ScoringTagMastery = {
   attemptsCount: number;
+  correctCount: number;
+  wrongCount: number;
   masteryScore: number;
   tag: ScoringTag;
 };
@@ -36,8 +38,19 @@ export type RecommendationCandidate<TTest extends ScoringTest = ScoringTest> = {
   test: TTest;
   score: number;
   matchedTags: string[];
+  weaknessDetails: RecommendationWeaknessDetail[];
   reason: string;
   recommendationType: 'knowledge_gap' | 'next_level' | 'popular';
+};
+
+export type RecommendationWeaknessDetail = {
+  tagId: string;
+  tag: string;
+  attemptsCount: number;
+  correctCount: number;
+  wrongCount: number;
+  masteryScore: number;
+  weaknessScore: number;
 };
 
 export class ContentBasedRecommendationEngine {
@@ -56,10 +69,14 @@ export class ContentBasedRecommendationEngine {
     tagMasteries: ScoringTagMastery[],
     attempts: ScoringAttempt[],
   ): RecommendationCandidate<TTest> {
-    const weakTagWeights = this.buildWeakTagWeights(tagMasteries);
+    const weakTagProfiles = this.buildWeakTagProfiles(tagMasteries);
     const testTags = this.getUniqueTestTags(test);
-    const matchedTags = testTags.filter((tag) => weakTagWeights.has(tag.id));
-    const weakTagMatch = this.getWeakTagMatch(matchedTags, weakTagWeights);
+    const matchedTags = testTags.filter((tag) => weakTagProfiles.has(tag.id));
+    const weaknessDetails = this.getWeaknessDetails(
+      matchedTags,
+      weakTagProfiles,
+    );
+    const weakTagMatch = this.getWeakTagMatch(matchedTags, weakTagProfiles);
     const categoryMatch = this.getCategoryMatch(test.categoryId, attempts);
     const difficultyMatch = this.getDifficultyMatch(test.difficulty, attempts);
     const ratingScore = Math.min(test.averageRating / 5, 1);
@@ -85,24 +102,33 @@ export class ContentBasedRecommendationEngine {
       test,
       score,
       matchedTags: matchedTags.map((tag) => tag.name),
-      reason: this.buildReason(test, matchedTags, attempts),
+      weaknessDetails,
+      reason: this.buildReason(test, matchedTags, weaknessDetails, attempts),
       recommendationType: this.getRecommendationType(matchedTags, attempts),
     };
   }
 
-  private buildWeakTagWeights(tagMasteries: ScoringTagMastery[]) {
-    const weights = new Map<string, number>();
+  private buildWeakTagProfiles(tagMasteries: ScoringTagMastery[]) {
+    const profiles = new Map<string, RecommendationWeaknessDetail>();
 
     for (const mastery of tagMasteries) {
       const confidence = Math.min(1, mastery.attemptsCount / 5);
       const weaknessScore = (1 - mastery.masteryScore) * confidence;
 
       if (weaknessScore >= 0.15) {
-        weights.set(mastery.tag.id, weaknessScore);
+        profiles.set(mastery.tag.id, {
+          tagId: mastery.tag.id,
+          tag: mastery.tag.name,
+          attemptsCount: mastery.attemptsCount,
+          correctCount: mastery.correctCount,
+          wrongCount: mastery.wrongCount,
+          masteryScore: this.roundScore(mastery.masteryScore),
+          weaknessScore: this.roundScore(weaknessScore),
+        });
       }
     }
 
-    return weights;
+    return profiles;
   }
 
   private getUniqueTestTags(test: ScoringTest) {
@@ -117,22 +143,34 @@ export class ContentBasedRecommendationEngine {
 
   private getWeakTagMatch(
     matchedTags: Array<{ id: string }>,
-    weakTagWeights: Map<string, number>,
+    weakTagProfiles: Map<string, RecommendationWeaknessDetail>,
   ) {
-    if (weakTagWeights.size === 0 || matchedTags.length === 0) {
+    if (weakTagProfiles.size === 0 || matchedTags.length === 0) {
       return 0;
     }
 
     const matchedWeight = matchedTags.reduce(
-      (total, tag) => total + (weakTagWeights.get(tag.id) ?? 0),
+      (total, tag) => total + (weakTagProfiles.get(tag.id)?.weaknessScore ?? 0),
       0,
     );
-    const totalWeight = [...weakTagWeights.values()].reduce(
-      (total, weight) => total + weight,
+    const totalWeight = [...weakTagProfiles.values()].reduce(
+      (total, profile) => total + profile.weaknessScore,
       0,
     );
 
     return totalWeight === 0 ? 0 : Math.min(matchedWeight / totalWeight, 1);
+  }
+
+  private getWeaknessDetails(
+    matchedTags: ScoringTag[],
+    weakTagProfiles: Map<string, RecommendationWeaknessDetail>,
+  ) {
+    return matchedTags
+      .map((tag) => weakTagProfiles.get(tag.id))
+      .filter((detail): detail is RecommendationWeaknessDetail =>
+        Boolean(detail),
+      )
+      .sort((a, b) => b.weaknessScore - a.weaknessScore);
   }
 
   private getCategoryMatch(
@@ -194,13 +232,21 @@ export class ContentBasedRecommendationEngine {
   private buildReason(
     test: ScoringTest,
     matchedTags: Array<{ name: string }>,
+    weaknessDetails: RecommendationWeaknessDetail[],
     attempts: ScoringAttempt[],
   ) {
     if (matchedTags.length > 0) {
+      const weakestTag = weaknessDetails[0];
+      const masteryHint = weakestTag
+        ? ` Your ${weakestTag.tag} mastery is ${Math.round(
+            weakestTag.masteryScore * 100,
+          )}%.`
+        : '';
+
       return `Recommended to practice ${matchedTags
         .slice(0, 3)
         .map((tag) => tag.name)
-        .join(', ')}.`;
+        .join(', ')}.${masteryHint}`;
     }
 
     if (attempts.length > 0 && attempts[0]?.test.categoryId === test.categoryId) {

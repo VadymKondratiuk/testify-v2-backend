@@ -87,6 +87,8 @@ export class RecommendationsService {
     const scoringTests = tests.map((test) => this.toScoringTest(test));
     const scoringTagMasteries = tagMasteries.map((mastery) => ({
       attemptsCount: mastery.attemptsCount,
+      correctCount: mastery.correctCount,
+      wrongCount: mastery.wrongCount,
       masteryScore: mastery.masteryScore,
       tag: {
         id: mastery.tag.id,
@@ -122,6 +124,7 @@ export class RecommendationsService {
         score: candidate.score,
         reason: candidate.reason,
         matchedTags: candidate.matchedTags,
+        weaknessDetails: candidate.weaknessDetails,
         recommendationType: candidate.recommendationType,
         _count: candidate.test._count,
       })),
@@ -192,6 +195,7 @@ export class RecommendationsService {
           score: candidate.score,
           reason: candidate.reason,
           matchedTags: candidate.matchedTags,
+          weaknessDetails: candidate.weaknessDetails,
           recommendationType: candidate.recommendationType,
         })),
       },

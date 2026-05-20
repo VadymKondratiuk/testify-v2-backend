@@ -41,6 +41,8 @@ const createMastery = (
   overrides: Partial<ScoringTagMastery>,
 ): ScoringTagMastery => ({
   attemptsCount: 5,
+  correctCount: 1,
+  wrongCount: 4,
   masteryScore: 0.2,
   tag: tags.oop,
   ...overrides,
@@ -74,6 +76,18 @@ describe('ContentBasedRecommendationEngine', () => {
     expect(first.test.id).toBe('oop-practice');
     expect(first.score).toBeGreaterThan(second.score);
     expect(first.matchedTags).toEqual(['oop']);
+    expect(first.weaknessDetails).toEqual([
+      {
+        tagId: 'tag-oop',
+        tag: 'oop',
+        attemptsCount: 5,
+        correctCount: 1,
+        wrongCount: 4,
+        masteryScore: 0.2,
+        weaknessScore: 0.8,
+      },
+    ]);
+    expect(first.reason).toContain('oop mastery is 20%');
     expect(first.recommendationType).toBe('knowledge_gap');
   });
 
