@@ -24,10 +24,7 @@ import {
 type AttemptQuestion = Prisma.QuestionGetPayload<{
   include: { options: true; tags: true };
 }>;
-type EvaluatedUserAnswer = Omit<
-  Prisma.UserAnswerCreateManyInput,
-  'attemptId'
->;
+type EvaluatedUserAnswer = Omit<Prisma.UserAnswerCreateManyInput, 'attemptId'>;
 
 @Injectable()
 export class AttemptsService {
@@ -113,11 +110,7 @@ export class AttemptsService {
     };
   }
 
-  async submit(
-    id: string,
-    submitAttemptDto: SubmitAttemptDto,
-    userId: string,
-  ) {
+  async submit(id: string, submitAttemptDto: SubmitAttemptDto, userId: string) {
     const attempt = await this.prisma.attempt.findUnique({
       where: { id },
       include: {
@@ -181,7 +174,7 @@ export class AttemptsService {
         });
       }
 
-      await this.userKnowledgeService.updateTagMastery(
+      const skillProgress = await this.userKnowledgeService.updateTagMastery(
         userId,
         evaluation.tagResults,
         tx,
@@ -195,6 +188,7 @@ export class AttemptsService {
           isPassed: percentage >= attempt.passingScore,
           completedAt: new Date(),
           focusAreas: evaluation.focusAreas,
+          skillProgress: skillProgress as unknown as Prisma.InputJsonValue,
           studyRecommendation,
         },
         ...this.defaultAttemptArgs(),
@@ -371,7 +365,7 @@ export class AttemptsService {
     return {
       score,
       maxScore,
-      focusAreas: [...focusAreas],
+      focusAreas: this.resolveFocusAreas([...focusAreas], score, maxScore),
       strongAreas: [...strongAreas],
       tagResults,
       userAnswers,
@@ -495,10 +489,7 @@ export class AttemptsService {
     }
 
     const normalizedTextAnswer = this.normalizeTextAnswer(textAnswer);
-    const acceptedAnswers = [
-      correctTextAnswer,
-      ...question.acceptedTextAnswers,
-    ]
+    const acceptedAnswers = [correctTextAnswer, ...question.acceptedTextAnswers]
       .map((acceptedAnswer) => this.normalizeTextAnswer(acceptedAnswer))
       .filter((acceptedAnswer) => acceptedAnswer.length > 0);
     const isCorrect = acceptedAnswers.includes(normalizedTextAnswer);
@@ -540,7 +531,12 @@ export class AttemptsService {
   }
 
   private addFocusAreas(question: AttemptQuestion, focusAreas: Set<string>) {
-    question.tags.forEach((tag) => focusAreas.add(tag.name));
+    if (question.tags.length > 0) {
+      question.tags.forEach((tag) => focusAreas.add(tag.name));
+      return;
+    }
+
+    focusAreas.add(this.getQuestionTypeFocusArea(question.type));
   }
 
   private addStrongAreas(question: AttemptQuestion, strongAreas: Set<string>) {
@@ -560,13 +556,47 @@ export class AttemptsService {
     });
   }
 
+  private resolveFocusAreas(
+    focusAreas: string[],
+    score: number,
+    maxScore: number,
+  ) {
+    if (focusAreas.length > 0) {
+      return focusAreas;
+    }
+
+    const percentage = maxScore === 0 ? 0 : (score / maxScore) * 100;
+
+    if (percentage >= 80) {
+      return ['Knowledge retention', 'Next-level practice'];
+    }
+
+    if (percentage >= 60) {
+      return ['Targeted review', 'Accuracy practice'];
+    }
+
+    return ['Core concepts', 'Question review'];
+  }
+
+  private getQuestionTypeFocusArea(type: QuestionType) {
+    switch (type) {
+      case QuestionType.MULTIPLE_CHOICE:
+        return 'Multi-answer reasoning';
+      case QuestionType.TEXT_ANSWER:
+        return 'Written explanation practice';
+      case QuestionType.SINGLE_CHOICE:
+      default:
+        return 'Single-choice concepts';
+    }
+  }
+
   private buildStudyRecommendation(percentage: number, focusAreas: string[]) {
     if (focusAreas.length === 0) {
       return 'Great result. Keep practicing to retain this level.';
     }
 
     if (percentage >= 80) {
-      return `Good result. Revisit: ${focusAreas.join(', ')}.`;
+      return `Good result. Keep practicing: ${focusAreas.join(', ')}.`;
     }
 
     if (percentage >= 60) {

@@ -67,8 +67,8 @@ model Test {
   passingScore Int        @default(60)
   timeLimit    Int?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   authorId String
@@ -94,12 +94,12 @@ enum QuestionType {
 }
 
 model Question {
-  id     String       @id @default(uuid())
-  text   String
-  type   QuestionType @default(SINGLE_CHOICE)
-  points Int          @default(1)
-  correctTextAnswer String?
-  acceptedTextAnswers String[] @default([])
+  id                  String       @id @default(uuid())
+  text                String
+  type                QuestionType @default(SINGLE_CHOICE)
+  points              Int          @default(1)
+  correctTextAnswer   String?
+  acceptedTextAnswers String[]     @default([])
 
   testId String
   test   Test   @relation(fields: [testId], references: [id], onDelete: Cascade)
@@ -152,6 +152,7 @@ model Attempt {
   // Рекомендаційний алгоритм (НОВЕ)
   studyRecommendation String? // Текстовий фідбек: "You are solid on core syntax..."
   focusAreas          String[] // Масив тегів для фронтенду: ["Event loop", "Promise concurrency"]
+  skillProgress       Json?
 
   // Зв'язки
   userId String
@@ -164,9 +165,9 @@ model Attempt {
 }
 
 model UserAnswer {
-  id        String  @id @default(uuid())
-  isCorrect Boolean @default(false) // Зручно для швидкої статистики
-  earnedPoints Float @default(0)
+  id           String  @id @default(uuid())
+  isCorrect    Boolean @default(false) // Зручно для швидкої статистики
+  earnedPoints Float   @default(0)
 
   attemptId String
   attempt   Attempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)

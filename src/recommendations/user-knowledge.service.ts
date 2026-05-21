@@ -7,6 +7,21 @@ export type TagAnswerResult = {
   isCorrect: boolean;
 };
 
+export type SkillProgressItem = {
+  tagId: string;
+  tag: string;
+  attemptsCountBefore: number;
+  attemptsCountAfter: number;
+  correctCountBefore: number;
+  correctCountAfter: number;
+  wrongCountBefore: number;
+  wrongCountAfter: number;
+  masteryBefore: number;
+  masteryAfter: number;
+  masteryDelta: number;
+  result: 'improved' | 'declined' | 'stable';
+};
+
 @Injectable()
 export class UserKnowledgeService {
   constructor(private readonly prisma: PrismaService) {}
@@ -15,13 +30,14 @@ export class UserKnowledgeService {
     userId: string,
     tagResults: TagAnswerResult[],
     tx?: Prisma.TransactionClient,
-  ) {
+  ): Promise<SkillProgressItem[]> {
     if (tagResults.length === 0) {
-      return;
+      return [];
     }
 
     const prisma = tx ?? this.prisma;
     const statsByTag = this.buildTagStats(tagResults);
+    const progress: SkillProgressItem[] = [];
 
     for (const [tagId, stats] of statsByTag) {
       const current = await prisma.userTagMastery.findUnique({
@@ -34,11 +50,33 @@ export class UserKnowledgeService {
         select: {
           correctCount: true,
           wrongCount: true,
+          tag: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
       });
+      const tag =
+        current?.tag ??
+        (await prisma.tag.findUniqueOrThrow({
+          where: { id: tagId },
+          select: {
+            id: true,
+            name: true,
+          },
+        }));
+      const correctCountBefore = current?.correctCount ?? 0;
+      const wrongCountBefore = current?.wrongCount ?? 0;
+      const attemptsCountBefore = correctCountBefore + wrongCountBefore;
+      const masteryBefore = this.calculateMasteryScore(
+        correctCountBefore,
+        attemptsCountBefore,
+      );
 
-      const correctCount = (current?.correctCount ?? 0) + stats.correctCount;
-      const wrongCount = (current?.wrongCount ?? 0) + stats.wrongCount;
+      const correctCount = correctCountBefore + stats.correctCount;
+      const wrongCount = wrongCountBefore + stats.wrongCount;
       const attemptsCount = correctCount + wrongCount;
       const masteryScore = this.calculateMasteryScore(
         correctCount,
@@ -69,7 +107,35 @@ export class UserKnowledgeService {
           lastSeenAt: new Date(),
         },
       });
+
+      const masteryDelta = this.roundToFour(masteryScore - masteryBefore);
+
+      progress.push({
+        tagId: tag.id,
+        tag: tag.name,
+        attemptsCountBefore,
+        attemptsCountAfter: attemptsCount,
+        correctCountBefore,
+        correctCountAfter: correctCount,
+        wrongCountBefore,
+        wrongCountAfter: wrongCount,
+        masteryBefore,
+        masteryAfter: masteryScore,
+        masteryDelta,
+        result: this.getProgressResult(masteryDelta),
+      });
     }
+
+    return progress.sort((left, right) => {
+      const absDeltaDiff =
+        Math.abs(right.masteryDelta) - Math.abs(left.masteryDelta);
+
+      if (absDeltaDiff !== 0) {
+        return absDeltaDiff;
+      }
+
+      return left.tag.localeCompare(right.tag);
+    });
   }
 
   private buildTagStats(tagResults: TagAnswerResult[]) {
@@ -101,6 +167,24 @@ export class UserKnowledgeService {
       return 0;
     }
 
-    return Math.round((correctCount / attemptsCount) * 10000) / 10000;
+    return this.roundToFour(correctCount / attemptsCount);
+  }
+
+  private roundToFour(value: number) {
+    return Math.round(value * 10000) / 10000;
+  }
+
+  private getProgressResult(
+    masteryDelta: number,
+  ): SkillProgressItem['result'] {
+    if (masteryDelta > 0) {
+      return 'improved';
+    }
+
+    if (masteryDelta < 0) {
+      return 'declined';
+    }
+
+    return 'stable';
   }
 }

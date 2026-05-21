@@ -5,6 +5,25 @@ import { categories, tests, users } from './data';
 
 const bcryptSaltRounds = 12;
 
+type DemoSkillProgressInput = {
+  tagName: string;
+  correctCountBefore: number;
+  wrongCountBefore: number;
+  correctCountAfter: number;
+  wrongCountAfter: number;
+};
+
+type DemoAttemptTest = Prisma.TestGetPayload<{
+  include: {
+    questions: {
+      include: {
+        options: true;
+        tags: true;
+      };
+    };
+  };
+}>;
+
 export async function clearDatabase() {
   await prisma.recommendationEvent.deleteMany();
   await prisma.recommendationSnapshot.deleteMany();
@@ -149,9 +168,32 @@ export async function seedDemoRecommendationData() {
     maxScore: 2,
     isPassed: true,
     completedDaysAgo: 5,
-    focusAreas: [],
+    focusAreas: ['Knowledge retention', 'Next-level practice'],
     studyRecommendation:
       'Great result. Keep practicing JavaScript basics while moving toward more challenging topics.',
+    skillProgress: [
+      {
+        tagName: 'variables',
+        correctCountBefore: 3,
+        wrongCountBefore: 0,
+        correctCountAfter: 4,
+        wrongCountAfter: 0,
+      },
+      {
+        tagName: 'scope',
+        correctCountBefore: 2,
+        wrongCountBefore: 1,
+        correctCountAfter: 3,
+        wrongCountAfter: 1,
+      },
+      {
+        tagName: 'arrays',
+        correctCountBefore: 3,
+        wrongCountBefore: 0,
+        correctCountAfter: 4,
+        wrongCountAfter: 0,
+      },
+    ],
     answerStrategy: () => true,
   });
 
@@ -165,6 +207,36 @@ export async function seedDemoRecommendationData() {
     focusAreas: ['sql', 'grouping', 'joins'],
     studyRecommendation:
       'Review SQL joins and grouped filtering before moving to advanced database tasks.',
+    skillProgress: [
+      {
+        tagName: 'sql',
+        correctCountBefore: 0,
+        wrongCountBefore: 2,
+        correctCountAfter: 1,
+        wrongCountAfter: 4,
+      },
+      {
+        tagName: 'grouping',
+        correctCountBefore: 1,
+        wrongCountBefore: 2,
+        correctCountAfter: 1,
+        wrongCountAfter: 3,
+      },
+      {
+        tagName: 'joins',
+        correctCountBefore: 1,
+        wrongCountBefore: 2,
+        correctCountAfter: 1,
+        wrongCountAfter: 3,
+      },
+      {
+        tagName: 'filtering',
+        correctCountBefore: 1,
+        wrongCountBefore: 1,
+        correctCountAfter: 2,
+        wrongCountAfter: 1,
+      },
+    ],
     answerStrategy: (question) =>
       !question.tags.some((tag) => ['joins', 'grouping'].includes(tag.name)),
   });
@@ -182,32 +254,27 @@ async function createDemoAttempt({
   completedDaysAgo,
   focusAreas,
   studyRecommendation,
+  skillProgress,
   answerStrategy,
 }: {
   userId: string;
-  test: Prisma.TestGetPayload<{
-    include: {
-      questions: {
-        include: {
-          options: true;
-          tags: true;
-        };
-      };
-    };
-  }>;
+  test: DemoAttemptTest;
   score: number;
   maxScore: number;
   isPassed: boolean;
   completedDaysAgo: number;
   focusAreas: string[];
   studyRecommendation: string;
-  answerStrategy: (question: {
-    tags: Array<{ name: string }>;
-  }) => boolean;
+  skillProgress: DemoSkillProgressInput[];
+  answerStrategy: (question: { tags: Array<{ name: string }> }) => boolean;
 }) {
-  const completedAt = new Date(Date.now() - completedDaysAgo * 24 * 60 * 60 * 1000);
+  const completedAt = new Date(
+    Date.now() - completedDaysAgo * 24 * 60 * 60 * 1000,
+  );
   const startedAt = new Date(completedAt.getTime() - 12 * 60 * 1000);
   const userAnswers: Prisma.UserAnswerCreateWithoutAttemptInput[] = [];
+  const skillProgressSnapshot =
+    await buildDemoSkillProgressSnapshot(skillProgress);
 
   for (const question of test.questions) {
     const isCorrect = answerStrategy(question);
@@ -257,11 +324,68 @@ async function createDemoAttempt({
       startedAt,
       completedAt,
       focusAreas,
+      skillProgress: skillProgressSnapshot as unknown as Prisma.InputJsonValue,
       studyRecommendation,
       userAnswers: {
         create: userAnswers,
       },
     },
+  });
+}
+
+async function buildDemoSkillProgressSnapshot(
+  progressItems: DemoSkillProgressInput[],
+) {
+  if (progressItems.length === 0) {
+    return [];
+  }
+
+  const tags = await prisma.tag.findMany({
+    where: {
+      name: {
+        in: progressItems.map((item) => item.tagName),
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+    },
+  });
+  const tagsByName = new Map(tags.map((tag) => [tag.name, tag]));
+
+  return progressItems.map((item) => {
+    const tag = tagsByName.get(item.tagName);
+
+    if (!tag) {
+      throw new Error(`Demo skill progress tag was not found: ${item.tagName}`);
+    }
+
+    const attemptsCountBefore = item.correctCountBefore + item.wrongCountBefore;
+    const attemptsCountAfter = item.correctCountAfter + item.wrongCountAfter;
+    const masteryBefore = calculateMasteryScore(
+      item.correctCountBefore,
+      attemptsCountBefore,
+    );
+    const masteryAfter = calculateMasteryScore(
+      item.correctCountAfter,
+      attemptsCountAfter,
+    );
+    const masteryDelta = roundToFour(masteryAfter - masteryBefore);
+
+    return {
+      tagId: tag.id,
+      tag: tag.name,
+      attemptsCountBefore,
+      attemptsCountAfter,
+      correctCountBefore: item.correctCountBefore,
+      correctCountAfter: item.correctCountAfter,
+      wrongCountBefore: item.wrongCountBefore,
+      wrongCountAfter: item.wrongCountAfter,
+      masteryBefore,
+      masteryAfter,
+      masteryDelta,
+      result: getProgressResult(masteryDelta),
+    };
   });
 }
 
@@ -286,10 +410,12 @@ async function clearDemoRecommendationData(userId: string, testIds: string[]) {
 async function seedDemoTagMasteries(userId: string) {
   const masteries = [
     { tagName: 'sql', attemptsCount: 5, correctCount: 1, wrongCount: 4 },
-    { tagName: 'joins', attemptsCount: 4, correctCount: 0, wrongCount: 4 },
+    { tagName: 'joins', attemptsCount: 4, correctCount: 1, wrongCount: 3 },
     { tagName: 'grouping', attemptsCount: 4, correctCount: 1, wrongCount: 3 },
+    { tagName: 'filtering', attemptsCount: 3, correctCount: 2, wrongCount: 1 },
     { tagName: 'variables', attemptsCount: 4, correctCount: 4, wrongCount: 0 },
     { tagName: 'arrays', attemptsCount: 4, correctCount: 4, wrongCount: 0 },
+    { tagName: 'scope', attemptsCount: 4, correctCount: 3, wrongCount: 1 },
   ];
 
   for (const mastery of masteries) {
@@ -308,7 +434,10 @@ async function seedDemoTagMasteries(userId: string) {
         attemptsCount: mastery.attemptsCount,
         correctCount: mastery.correctCount,
         wrongCount: mastery.wrongCount,
-        masteryScore: mastery.correctCount / mastery.attemptsCount,
+        masteryScore: calculateMasteryScore(
+          mastery.correctCount,
+          mastery.attemptsCount,
+        ),
         lastSeenAt: new Date(),
       },
     });
@@ -316,6 +445,8 @@ async function seedDemoTagMasteries(userId: string) {
 }
 
 async function seedDemoRecommendationSnapshots(userId: string) {
+  const matchedTags = ['sql', 'joins', 'grouping'];
+  const weaknessDetails = await getDemoWeaknessDetails(userId, matchedTags);
   const recommendedTests = await prisma.test.findMany({
     where: {
       title: {
@@ -336,10 +467,80 @@ async function seedDemoRecommendationSnapshots(userId: string) {
       payload: recommendedTests.map((test) => ({
         testId: test.id,
         title: test.title,
-        reason: 'Seeded demo recommendation for weak database tags.',
-        matchedTags: ['sql', 'joins', 'grouping'],
+        reason:
+          test.title === 'SQL Query Practice'
+            ? 'Recommended because SQL, joins, and grouping are currently weak tags.'
+            : 'Recommended as a lower-difficulty database review before another SQL attempt.',
+        matchedTags,
+        weaknessDetails,
         recommendationType: 'knowledge_gap',
       })),
     },
   });
+}
+
+async function getDemoWeaknessDetails(userId: string, tagNames: string[]) {
+  const masteries = await prisma.userTagMastery.findMany({
+    where: {
+      userId,
+      tag: {
+        name: {
+          in: tagNames,
+        },
+      },
+    },
+    include: {
+      tag: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  });
+  const masteriesByTagName = new Map(
+    masteries.map((mastery) => [mastery.tag.name, mastery]),
+  );
+
+  return tagNames.map((tagName) => {
+    const mastery = masteriesByTagName.get(tagName);
+
+    if (!mastery) {
+      throw new Error(`Demo weakness tag mastery was not found: ${tagName}`);
+    }
+
+    return {
+      tagId: mastery.tag.id,
+      tag: mastery.tag.name,
+      attemptsCount: mastery.attemptsCount,
+      correctCount: mastery.correctCount,
+      wrongCount: mastery.wrongCount,
+      masteryScore: roundToFour(mastery.masteryScore),
+      weaknessScore: roundToFour(1 - mastery.masteryScore),
+    };
+  });
+}
+
+function calculateMasteryScore(correctCount: number, attemptsCount: number) {
+  if (attemptsCount === 0) {
+    return 0;
+  }
+
+  return roundToFour(correctCount / attemptsCount);
+}
+
+function roundToFour(value: number) {
+  return Math.round(value * 10000) / 10000;
+}
+
+function getProgressResult(masterDelta: number) {
+  if (masterDelta > 0) {
+    return 'improved';
+  }
+
+  if (masterDelta < 0) {
+    return 'declined';
+  }
+
+  return 'stable';
 }
