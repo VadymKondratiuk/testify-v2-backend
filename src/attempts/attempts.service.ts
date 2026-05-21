@@ -2,9 +2,15 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, QuestionType, Role } from '@prisma/client';
+import {
+  Prisma,
+  QuestionType,
+  Role,
+  StudyRecommendationStatus,
+} from '@prisma/client';
 import { AiStudyCoachService } from '../ai/ai-study-coach.service';
 import { JwtPayload } from '../auth/types/jwt-payload.type';
 import { PrismaService } from '../prisma/prisma.service';
@@ -25,9 +31,14 @@ type AttemptQuestion = Prisma.QuestionGetPayload<{
   include: { options: true; tags: true };
 }>;
 type EvaluatedUserAnswer = Omit<Prisma.UserAnswerCreateManyInput, 'attemptId'>;
+type StudyRecommendationInput = Parameters<
+  AiStudyCoachService['generateStudyRecommendation']
+>[0];
 
 @Injectable()
 export class AttemptsService {
+  private readonly logger = new Logger(AttemptsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiStudyCoachService: AiStudyCoachService,
@@ -150,21 +161,17 @@ export class AttemptsService {
       percentage,
       evaluation.focusAreas,
     );
-    const studyRecommendation =
-      await this.aiStudyCoachService.generateStudyRecommendation(
-        {
-          testTitle: attempt.test.title,
-          scorePercentage: percentage,
-          isPassed: percentage >= attempt.passingScore,
-          categoryName: attempt.test.category?.name,
-          difficulty: attempt.test.difficulty,
-          focusAreas: evaluation.focusAreas,
-          strongAreas: evaluation.strongAreas,
-        },
-        fallbackRecommendation,
-      );
+    const studyCoachInput = {
+      testTitle: attempt.test.title,
+      scorePercentage: percentage,
+      isPassed: percentage >= attempt.passingScore,
+      categoryName: attempt.test.category?.name,
+      difficulty: attempt.test.difficulty,
+      focusAreas: evaluation.focusAreas,
+      strongAreas: evaluation.strongAreas,
+    };
 
-    return this.prisma.$transaction(async (tx) => {
+    const submittedAttempt = await this.prisma.$transaction(async (tx) => {
       if (evaluation.userAnswers.length > 0) {
         await tx.userAnswer.createMany({
           data: evaluation.userAnswers.map((answer) => ({
@@ -189,11 +196,83 @@ export class AttemptsService {
           completedAt: new Date(),
           focusAreas: evaluation.focusAreas,
           skillProgress: skillProgress as unknown as Prisma.InputJsonValue,
-          studyRecommendation,
+          studyRecommendation: null,
+          studyRecommendationStatus: StudyRecommendationStatus.PENDING,
+          studyRecommendationGeneratedAt: null,
         },
         ...this.defaultAttemptArgs(),
       });
     });
+
+    this.generateStudyRecommendationInBackground(
+      attempt.id,
+      studyCoachInput,
+      fallbackRecommendation,
+    );
+
+    return submittedAttempt;
+  }
+
+  private generateStudyRecommendationInBackground(
+    attemptId: string,
+    input: StudyRecommendationInput,
+    fallbackRecommendation: string,
+  ) {
+    void this.resolveStudyRecommendation(
+      attemptId,
+      input,
+      fallbackRecommendation,
+    ).catch((error) => {
+      this.logger.warn(
+        `Study recommendation background task crashed for attempt ${attemptId}: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      );
+    });
+  }
+
+  private async resolveStudyRecommendation(
+    attemptId: string,
+    input: StudyRecommendationInput,
+    fallbackRecommendation: string,
+  ) {
+    try {
+      const studyRecommendation =
+        await this.aiStudyCoachService.generateStudyRecommendation(
+          input,
+          fallbackRecommendation,
+        );
+
+      await this.prisma.attempt.updateMany({
+        where: {
+          id: attemptId,
+          studyRecommendationStatus: StudyRecommendationStatus.PENDING,
+        },
+        data: {
+          studyRecommendation: studyRecommendation || fallbackRecommendation,
+          studyRecommendationStatus: StudyRecommendationStatus.COMPLETED,
+          studyRecommendationGeneratedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Study recommendation generation failed for attempt ${attemptId}: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      );
+
+      await this.prisma.attempt.updateMany({
+        where: {
+          id: attemptId,
+          studyRecommendationStatus: StudyRecommendationStatus.PENDING,
+        },
+        data: {
+          studyRecommendation: fallbackRecommendation,
+          studyRecommendationStatus: StudyRecommendationStatus.FAILED,
+          studyRecommendationGeneratedAt: new Date(),
+        },
+      });
+    }
   }
 
   async findMy(userId: string, query: FindMyAttemptsQueryDto) {
@@ -283,16 +362,56 @@ export class AttemptsService {
       throw new NotFoundException(`Attempt with id "${id}" was not found`);
     }
 
+    this.ensureCanAccessAttempt(attempt, user);
+
+    return attempt;
+  }
+
+  async findStudyRecommendation(id: string, user: JwtPayload) {
+    const attempt = await this.prisma.attempt.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        studyRecommendation: true,
+        studyRecommendationStatus: true,
+        studyRecommendationGeneratedAt: true,
+        test: {
+          select: {
+            authorId: true,
+          },
+        },
+      },
+    });
+
+    if (!attempt) {
+      throw new NotFoundException(`Attempt with id "${id}" was not found`);
+    }
+
+    this.ensureCanAccessAttempt(attempt, user);
+
+    return {
+      attemptId: attempt.id,
+      studyRecommendation: attempt.studyRecommendation,
+      studyRecommendationStatus: attempt.studyRecommendationStatus,
+      studyRecommendationGeneratedAt: attempt.studyRecommendationGeneratedAt,
+    };
+  }
+
+  private ensureCanAccessAttempt(
+    attempt: { userId: string; test: { authorId: string } },
+    user: JwtPayload,
+  ) {
     if (user.role === Role.ADMIN) {
-      return attempt;
+      return;
     }
 
     if (attempt.userId === user.sub) {
-      return attempt;
+      return;
     }
 
     if (user.role === Role.TEACHER && attempt.test.authorId === user.sub) {
-      return attempt;
+      return;
     }
 
     throw new ForbiddenException('You cannot access this attempt');

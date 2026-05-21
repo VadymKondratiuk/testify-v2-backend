@@ -53,6 +53,15 @@ export class AttemptsController {
   }
 
   @Roles(Role.STUDENT, Role.TEACHER, Role.ADMIN)
+  @Get('attempts/:id/study-recommendation')
+  findStudyRecommendation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetCurrentUser() user: JwtPayload,
+  ) {
+    return this.attemptsService.findStudyRecommendation(id, user);
+  }
+
+  @Roles(Role.STUDENT, Role.TEACHER, Role.ADMIN)
   @Get('attempts/:id')
   findOne(
     @Param('id', ParseUUIDPipe) id: string,

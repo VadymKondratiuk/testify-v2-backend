@@ -95,6 +95,13 @@ enum QuestionType {
   TEXT_ANSWER
 }
 
+enum StudyRecommendationStatus {
+  NOT_REQUESTED
+  PENDING
+  COMPLETED
+  FAILED
+}
+
 model Question {
   id                  String       @id @default(uuid())
   text                String
@@ -153,9 +160,11 @@ model Attempt {
   completedAt DateTime?
 
   // Рекомендаційний алгоритм (НОВЕ)
-  studyRecommendation String? // Текстовий фідбек: "You are solid on core syntax..."
-  focusAreas          String[] // Масив тегів для фронтенду: ["Event loop", "Promise concurrency"]
-  skillProgress       Json?
+  studyRecommendation            String? // Текстовий фідбек: "You are solid on core syntax..."
+  focusAreas                     String[] // Масив тегів для фронтенду: ["Event loop", "Promise concurrency"]
+  skillProgress                  Json?
+  studyRecommendationStatus      StudyRecommendationStatus @default(NOT_REQUESTED)
+  studyRecommendationGeneratedAt DateTime?
 
   // Зв'язки
   userId String
