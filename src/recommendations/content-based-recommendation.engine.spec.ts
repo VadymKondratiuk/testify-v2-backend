@@ -23,9 +23,7 @@ const createTest = (overrides: Partial<ScoringTest>): ScoringTest => ({
   ...overrides,
 });
 
-const createAttempt = (
-  overrides: Partial<ScoringAttempt>,
-): ScoringAttempt => ({
+const createAttempt = (overrides: Partial<ScoringAttempt>): ScoringAttempt => ({
   testId: 'attempted-test',
   score: 70,
   maxScore: 100,
@@ -195,5 +193,42 @@ describe('ContentBasedRecommendationEngine', () => {
     expect(first.test.id).toBe('beginner-popular');
     expect(first.score).toBeGreaterThan(second.score);
     expect(first.recommendationType).toBe('popular');
+  });
+
+  it('boosts tests that match an active learning goal', () => {
+    const sqlGoalTest = createTest({
+      id: 'sql-goal-match',
+      categoryId: 'databases',
+      categoryName: 'Databases',
+      difficulty: Difficulty.INTERMEDIATE,
+      tags: [tags.sql],
+    });
+    const unrelatedTest = createTest({
+      id: 'unrelated-js',
+      categoryId: 'javascript',
+      categoryName: 'JavaScript',
+      difficulty: Difficulty.BEGINNER,
+      tags: [tags.arrays],
+    });
+
+    const [first, second] = engine.scoreTests(
+      [unrelatedTest, sqlGoalTest],
+      [],
+      [],
+      [
+        {
+          title: 'Improve SQL querying',
+          categoryId: 'databases',
+          targetDifficulty: Difficulty.INTERMEDIATE,
+          tagIds: [tags.sql.id],
+        },
+      ],
+    );
+
+    expect(first.test.id).toBe('sql-goal-match');
+    expect(first.score).toBeGreaterThan(second.score);
+    expect(first.goalMatches).toEqual(['Improve SQL querying']);
+    expect(first.reason).toContain('Matches your learning goal');
+    expect(first.recommendationType).toBe('learning_goal');
   });
 });

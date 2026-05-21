@@ -34,13 +34,25 @@ export type ScoringAttempt = {
   };
 };
 
+export type ScoringLearningGoal = {
+  title: string;
+  categoryId: string | null;
+  targetDifficulty: Difficulty | null;
+  tagIds: string[];
+};
+
 export type RecommendationCandidate<TTest extends ScoringTest = ScoringTest> = {
   test: TTest;
   score: number;
   matchedTags: string[];
+  goalMatches: string[];
   weaknessDetails: RecommendationWeaknessDetail[];
   reason: string;
-  recommendationType: 'knowledge_gap' | 'next_level' | 'popular';
+  recommendationType:
+    | 'knowledge_gap'
+    | 'learning_goal'
+    | 'next_level'
+    | 'popular';
 };
 
 export type RecommendationWeaknessDetail = {
@@ -58,9 +70,12 @@ export class ContentBasedRecommendationEngine {
     tests: TTest[],
     tagMasteries: ScoringTagMastery[],
     attempts: ScoringAttempt[],
+    learningGoals: ScoringLearningGoal[] = [],
   ) {
     return tests
-      .map((test) => this.scoreTest(test, tagMasteries, attempts))
+      .map((test) =>
+        this.scoreTest(test, tagMasteries, attempts, learningGoals),
+      )
       .sort((a, b) => b.score - a.score);
   }
 
@@ -68,6 +83,7 @@ export class ContentBasedRecommendationEngine {
     test: TTest,
     tagMasteries: ScoringTagMastery[],
     attempts: ScoringAttempt[],
+    learningGoals: ScoringLearningGoal[] = [],
   ): RecommendationCandidate<TTest> {
     const weakTagProfiles = this.buildWeakTagProfiles(tagMasteries);
     const testTags = this.getUniqueTestTags(test);
@@ -80,6 +96,8 @@ export class ContentBasedRecommendationEngine {
     const categoryMatch = this.getCategoryMatch(test.categoryId, attempts);
     const difficultyMatch = this.getDifficultyMatch(test.difficulty, attempts);
     const ratingScore = Math.min(test.averageRating / 5, 1);
+    const goalMatches = this.getGoalMatches(test, learningGoals);
+    const goalMatch = goalMatches[0]?.score ?? 0;
     const noveltyScore = attempts.some((attempt) => attempt.testId === test.id)
       ? 0
       : 1;
@@ -95,16 +113,28 @@ export class ContentBasedRecommendationEngine {
         0.15 * difficultyMatch +
         0.1 * ratingScore +
         0.1 * noveltyScore -
-        alreadyPassedPenalty,
+        alreadyPassedPenalty +
+        0.2 * goalMatch,
     );
 
     return {
       test,
       score,
       matchedTags: matchedTags.map((tag) => tag.name),
+      goalMatches: goalMatches.map((goal) => goal.title),
       weaknessDetails,
-      reason: this.buildReason(test, matchedTags, weaknessDetails, attempts),
-      recommendationType: this.getRecommendationType(matchedTags, attempts),
+      reason: this.buildReason(
+        test,
+        matchedTags,
+        weaknessDetails,
+        attempts,
+        goalMatches.map((goal) => goal.title),
+      ),
+      recommendationType: this.getRecommendationType(
+        matchedTags,
+        attempts,
+        goalMatches,
+      ),
     };
   }
 
@@ -202,7 +232,8 @@ export class ContentBasedRecommendationEngine {
           total + this.toPercentage(attempt.score, attempt.maxScore),
         0,
       ) / attempts.length;
-    const latestDifficulty = attempts[0]?.test.difficulty ?? Difficulty.BEGINNER;
+    const latestDifficulty =
+      attempts[0]?.test.difficulty ?? Difficulty.BEGINNER;
     const targetDifficulty = this.getTargetDifficulty(
       latestDifficulty,
       averageScore,
@@ -229,11 +260,58 @@ export class ContentBasedRecommendationEngine {
     return current;
   }
 
+  private getGoalMatches(
+    test: ScoringTest,
+    learningGoals: ScoringLearningGoal[],
+  ) {
+    if (learningGoals.length === 0) {
+      return [];
+    }
+
+    const testTagIds = new Set(test.tags.map((tag) => tag.id));
+
+    return learningGoals
+      .map((goal) => ({
+        title: goal.title,
+        score: this.getGoalMatchScore(test, testTagIds, goal),
+      }))
+      .filter((goal) => goal.score >= 0.35)
+      .sort((a, b) => b.score - a.score);
+  }
+
+  private getGoalMatchScore(
+    test: ScoringTest,
+    testTagIds: Set<string>,
+    goal: ScoringLearningGoal,
+  ) {
+    const scores: number[] = [];
+
+    if (goal.categoryId) {
+      scores.push(test.categoryId === goal.categoryId ? 1 : 0);
+    }
+
+    if (goal.targetDifficulty) {
+      scores.push(test.difficulty === goal.targetDifficulty ? 1 : 0.25);
+    }
+
+    if (goal.tagIds.length > 0) {
+      const matchingTags = goal.tagIds.filter((tagId) => testTagIds.has(tagId));
+      scores.push(matchingTags.length / goal.tagIds.length);
+    }
+
+    if (scores.length === 0) {
+      return 0;
+    }
+
+    return scores.reduce((total, score) => total + score, 0) / scores.length;
+  }
+
   private buildReason(
     test: ScoringTest,
     matchedTags: Array<{ name: string }>,
     weaknessDetails: RecommendationWeaknessDetail[],
     attempts: ScoringAttempt[],
+    goalMatches: string[],
   ) {
     if (matchedTags.length > 0) {
       const weakestTag = weaknessDetails[0];
@@ -249,7 +327,14 @@ export class ContentBasedRecommendationEngine {
         .join(', ')}.${masteryHint}`;
     }
 
-    if (attempts.length > 0 && attempts[0]?.test.categoryId === test.categoryId) {
+    if (goalMatches.length > 0) {
+      return `Matches your learning goal: ${goalMatches[0]}.`;
+    }
+
+    if (
+      attempts.length > 0 &&
+      attempts[0]?.test.categoryId === test.categoryId
+    ) {
       return `Good next step in ${test.categoryName ?? 'this category'}.`;
     }
 
@@ -259,9 +344,14 @@ export class ContentBasedRecommendationEngine {
   private getRecommendationType(
     matchedTags: Array<{ name: string }>,
     attempts: ScoringAttempt[],
+    goalMatches: Array<{ title: string; score: number }>,
   ): RecommendationCandidate['recommendationType'] {
     if (matchedTags.length > 0) {
       return 'knowledge_gap';
+    }
+
+    if (goalMatches.length > 0) {
+      return 'learning_goal';
     }
 
     if (attempts.length > 0) {

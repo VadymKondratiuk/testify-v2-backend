@@ -35,6 +35,7 @@ model User {
   tagMasteries            UserTagMastery[]
   recommendationSnapshots RecommendationSnapshot[]
   recommendationEvents    RecommendationEvent[]
+  learningGoals           LearningGoal[]
 }
 
 // ==========================================
@@ -45,7 +46,8 @@ model Category {
   name        String  @unique
   description String?
 
-  tests Test[]
+  tests         Test[]
+  learningGoals LearningGoal[]
 }
 
 // ==========================================
@@ -116,8 +118,9 @@ model Tag {
   id   String @id @default(uuid())
   name String @unique // Назва тегу
 
-  questions     Question[] // Зв'язок: в яких питаннях використовується цей тег
-  userMasteries UserTagMastery[]
+  questions        Question[] // Зв'язок: в яких питаннях використовується цей тег
+  userMasteries    UserTagMastery[]
+  learningGoalTags LearningGoalTag[]
 }
 
 model Option {
@@ -219,6 +222,44 @@ model UserTagMastery {
 
   @@unique([userId, tagId])
   @@index([userId, masteryScore])
+}
+
+enum LearningGoalStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+model LearningGoal {
+  id               String             @id @default(uuid())
+  title            String
+  targetScore      Int                @default(80)
+  targetDifficulty Difficulty?
+  deadline         DateTime?
+  status           LearningGoalStatus @default(ACTIVE)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  goalTags LearningGoalTag[]
+
+  @@index([userId, status])
+}
+
+model LearningGoalTag {
+  goalId String
+  goal   LearningGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  tagId String
+  tag   Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([goalId, tagId])
+  @@index([tagId])
 }
 
 model RecommendationSnapshot {

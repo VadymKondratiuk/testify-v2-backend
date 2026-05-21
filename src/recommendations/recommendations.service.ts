@@ -1,10 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { LearningGoalStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ContentBasedRecommendationEngine,
   RecommendationCandidate,
   ScoringAttempt,
+  ScoringLearningGoal,
   ScoringTagMastery,
   ScoringTest,
 } from './content-based-recommendation.engine';
@@ -20,7 +21,9 @@ type PublishedTest = Prisma.TestGetPayload<{
 }>;
 
 type UserAttemptSummary = Prisma.AttemptGetPayload<{
-  include: { test: { select: { id: true; categoryId: true; difficulty: true } } };
+  include: {
+    test: { select: { id: true; categoryId: true; difficulty: true } };
+  };
 }>;
 
 type PublishedScoringTest = PublishedTest & ScoringTest;
@@ -35,54 +38,68 @@ export class RecommendationsService {
     const limit = query.limit ?? 6;
     const placement = query.placement ?? 'catalog';
 
-    const [tagMasteries, attempts, tests] = await this.prisma.$transaction([
-      this.prisma.userTagMastery.findMany({
-        where: { userId },
-        include: { tag: true },
-        orderBy: [{ masteryScore: 'asc' }, { attemptsCount: 'desc' }],
-      }),
-      this.prisma.attempt.findMany({
-        where: {
-          userId,
-          completedAt: { not: null },
-        },
-        orderBy: { completedAt: 'desc' },
-        take: 20,
-        include: {
-          test: {
-            select: {
-              id: true,
-              categoryId: true,
-              difficulty: true,
+    const [tagMasteries, attempts, tests, learningGoals] =
+      await this.prisma.$transaction([
+        this.prisma.userTagMastery.findMany({
+          where: { userId },
+          include: { tag: true },
+          orderBy: [{ masteryScore: 'asc' }, { attemptsCount: 'desc' }],
+        }),
+        this.prisma.attempt.findMany({
+          where: {
+            userId,
+            completedAt: { not: null },
+          },
+          orderBy: { completedAt: 'desc' },
+          take: 20,
+          include: {
+            test: {
+              select: {
+                id: true,
+                categoryId: true,
+                difficulty: true,
+              },
             },
           },
-        },
-      }),
-      this.prisma.test.findMany({
-        where: {
-          deletedAt: null,
-          isPublished: true,
-          questions: {
-            some: {},
-          },
-        },
-        include: {
-          category: true,
-          questions: {
-            include: {
-              tags: true,
+        }),
+        this.prisma.test.findMany({
+          where: {
+            deletedAt: null,
+            isPublished: true,
+            questions: {
+              some: {},
             },
           },
-          _count: {
-            select: {
-              questions: true,
-              attempts: true,
-              ratings: true,
+          include: {
+            category: true,
+            questions: {
+              include: {
+                tags: true,
+              },
+            },
+            _count: {
+              select: {
+                questions: true,
+                attempts: true,
+                ratings: true,
+              },
             },
           },
-        },
-      }),
-    ]);
+        }),
+        this.prisma.learningGoal.findMany({
+          where: {
+            userId,
+            status: LearningGoalStatus.ACTIVE,
+          },
+          include: {
+            goalTags: {
+              select: {
+                tagId: true,
+              },
+            },
+          },
+        }),
+      ]);
 
     const scoringTests = tests.map((test) => this.toScoringTest(test));
     const scoringTagMasteries = tagMasteries.map((mastery) => ({
@@ -105,9 +122,20 @@ export class RecommendationsService {
         difficulty: attempt.test.difficulty,
       },
     })) satisfies ScoringAttempt[];
+    const scoringLearningGoals = learningGoals.map((goal) => ({
+      title: goal.title,
+      categoryId: goal.categoryId,
+      targetDifficulty: goal.targetDifficulty,
+      tagIds: goal.goalTags.map((goalTag) => goalTag.tagId),
+    })) satisfies ScoringLearningGoal[];
 
     const candidates = this.engine
-      .scoreTests(scoringTests, scoringTagMasteries, scoringAttempts)
+      .scoreTests(
+        scoringTests,
+        scoringTagMasteries,
+        scoringAttempts,
+        scoringLearningGoals,
+      )
       .slice(0, limit);
 
     await this.saveSnapshot(userId, placement, candidates);
@@ -124,6 +152,7 @@ export class RecommendationsService {
         score: candidate.score,
         reason: candidate.reason,
         matchedTags: candidate.matchedTags,
+        goalMatches: candidate.goalMatches,
         weaknessDetails: candidate.weaknessDetails,
         recommendationType: candidate.recommendationType,
         _count: candidate.test._count,
@@ -195,11 +224,11 @@ export class RecommendationsService {
           score: candidate.score,
           reason: candidate.reason,
           matchedTags: candidate.matchedTags,
+          goalMatches: candidate.goalMatches,
           weaknessDetails: candidate.weaknessDetails,
           recommendationType: candidate.recommendationType,
         })),
       },
     });
   }
-
 }

@@ -1,4 +1,4 @@
-import { Prisma, QuestionType } from '@prisma/client';
+import { Difficulty, Prisma, QuestionType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { prisma } from './client';
 import { categories, tests, users } from './data';
@@ -27,6 +27,8 @@ type DemoAttemptTest = Prisma.TestGetPayload<{
 export async function clearDatabase() {
   await prisma.recommendationEvent.deleteMany();
   await prisma.recommendationSnapshot.deleteMany();
+  await prisma.learningGoalTag.deleteMany();
+  await prisma.learningGoal.deleteMany();
   await prisma.userTagMastery.deleteMany();
   await prisma.userAnswer.deleteMany();
   await prisma.option.deleteMany();
@@ -242,6 +244,7 @@ export async function seedDemoRecommendationData() {
   });
 
   await seedDemoTagMasteries(student.id);
+  await seedDemoLearningGoals(student.id);
   await seedDemoRecommendationSnapshots(student.id);
 }
 
@@ -399,10 +402,51 @@ async function clearDemoRecommendationData(userId: string, testIds: string[]) {
   await prisma.userTagMastery.deleteMany({
     where: { userId },
   });
+  await prisma.learningGoal.deleteMany({
+    where: { userId },
+  });
   await prisma.attempt.deleteMany({
     where: {
       userId,
       testId: { in: testIds },
+    },
+  });
+}
+
+async function seedDemoLearningGoals(userId: string) {
+  const category = await prisma.category.findUnique({
+    where: { name: 'Databases' },
+  });
+  const tags = await prisma.tag.findMany({
+    where: {
+      name: {
+        in: ['sql', 'joins', 'grouping'],
+      },
+    },
+  });
+
+  if (!category) {
+    throw new Error('Demo learning goal category was not found: Databases');
+  }
+
+  if (tags.length !== 3) {
+    throw new Error('Demo learning goal tags were not found');
+  }
+
+  await prisma.learningGoal.create({
+    data: {
+      userId,
+      title: 'Improve SQL querying',
+      targetScore: 80,
+      targetDifficulty: Difficulty.INTERMEDIATE,
+      categoryId: category.id,
+      goalTags: {
+        createMany: {
+          data: tags.map((tag) => ({
+            tagId: tag.id,
+          })),
+        },
+      },
     },
   });
 }
@@ -472,6 +516,7 @@ async function seedDemoRecommendationSnapshots(userId: string) {
             ? 'Recommended because SQL, joins, and grouping are currently weak tags.'
             : 'Recommended as a lower-difficulty database review before another SQL attempt.',
         matchedTags,
+        goalMatches: ['Improve SQL querying'],
         weaknessDetails,
         recommendationType: 'knowledge_gap',
       })),
