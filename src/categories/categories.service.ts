@@ -38,7 +38,7 @@ export class CategoriesService {
         },
         skip: (page - 1) * limit,
         take: limit,
-        ...this.defaultCategoryArgs(),
+        ...this.defaultCategoryArgs(query),
       }),
       this.prisma.category.count({ where }),
     ]);
@@ -122,12 +122,21 @@ export class CategoriesService {
     };
   }
 
-  private defaultCategoryArgs() {
+  private defaultCategoryArgs(query?: FindCategoriesQueryDto) {
+    const testsCountArgs =
+      query?.testIsPublished === undefined
+        ? true
+        : {
+            where: {
+              isPublished: query.testIsPublished,
+            },
+          };
+
     return {
       include: {
         _count: {
           select: {
-            tests: true,
+            tests: testsCountArgs,
           },
         },
       },

@@ -246,6 +246,7 @@ export async function seedDemoRecommendationData() {
   await seedDemoTagMasteries(student.id);
   await seedDemoLearningGoals(student.id);
   await seedDemoRecommendationSnapshots(student.id);
+  await seedDefenseRecommendationScenario();
 }
 
 async function createDemoAttempt({
@@ -521,6 +522,370 @@ async function seedDemoRecommendationSnapshots(userId: string) {
         recommendationType: 'knowledge_gap',
       })),
     },
+  });
+}
+
+async function seedDefenseRecommendationScenario() {
+  const demoAttemptTitles = [
+    'TypeScript Essentials',
+    'JavaScript Fundamentals',
+    'SQL Query Practice',
+    'Database Design Basics',
+  ];
+  const student = await prisma.user.findUnique({
+    where: { email: 'student-test@testify.com' },
+  });
+  const goalCategories = await prisma.category.findMany({
+    where: {
+      name: {
+        in: ['Databases', 'React', 'Node.js'],
+      },
+    },
+  });
+  const sqlGoalTags = await prisma.tag.findMany({
+    where: {
+      name: {
+        in: ['sql', 'joins', 'grouping'],
+      },
+    },
+  });
+  const masteryTagNames = [
+    'sql',
+    'joins',
+    'grouping',
+    'state',
+    'context',
+    'async',
+    'promises',
+  ];
+  const masteryTags = await prisma.tag.findMany({
+    where: {
+      name: {
+        in: masteryTagNames,
+      },
+    },
+  });
+  const demoAttemptTests = await prisma.test.findMany({
+    where: {
+      title: {
+        in: demoAttemptTitles,
+      },
+    },
+    include: {
+      questions: {
+        include: {
+          options: true,
+          tags: true,
+        },
+        orderBy: { text: 'asc' },
+      },
+    },
+  });
+
+  if (!student) {
+    throw new Error('Defense demo student was not found');
+  }
+
+  if (goalCategories.length !== 3) {
+    throw new Error('Defense demo goal categories were not found');
+  }
+
+  if (sqlGoalTags.length !== 3) {
+    throw new Error('Defense demo SQL goal tags were not found');
+  }
+
+  if (masteryTags.length !== masteryTagNames.length) {
+    throw new Error('Defense demo mastery tags were not found');
+  }
+
+  if (demoAttemptTests.length !== demoAttemptTitles.length) {
+    throw new Error('Defense demo history tests were not found');
+  }
+
+  await clearDefenseRecommendationScenario(student.id);
+
+  const demoAttemptTestsByTitle = new Map(
+    demoAttemptTests.map((test) => [test.title, test]),
+  );
+  const getDemoAttemptTest = (title: string) => {
+    const test = demoAttemptTestsByTitle.get(title);
+
+    if (!test) {
+      throw new Error(`Defense demo history test was not found: ${title}`);
+    }
+
+    return test;
+  };
+
+  await createDemoAttempt({
+    userId: student.id,
+    test: getDemoAttemptTest('TypeScript Essentials'),
+    score: 5,
+    maxScore: 5,
+    isPassed: true,
+    completedDaysAgo: 8,
+    focusAreas: ['Next-level TypeScript practice'],
+    studyRecommendation:
+      'Strong TypeScript result. Continue with more advanced typed API tasks.',
+    skillProgress: [
+      {
+        tagName: 'typescript',
+        correctCountBefore: 2,
+        wrongCountBefore: 0,
+        correctCountAfter: 3,
+        wrongCountAfter: 0,
+      },
+      {
+        tagName: 'interfaces',
+        correctCountBefore: 1,
+        wrongCountBefore: 0,
+        correctCountAfter: 2,
+        wrongCountAfter: 0,
+      },
+      {
+        tagName: 'narrowing',
+        correctCountBefore: 1,
+        wrongCountBefore: 1,
+        correctCountAfter: 2,
+        wrongCountAfter: 1,
+      },
+    ],
+    answerStrategy: () => true,
+  });
+
+  await createDemoAttempt({
+    userId: student.id,
+    test: getDemoAttemptTest('JavaScript Fundamentals'),
+    score: 2,
+    maxScore: 2,
+    isPassed: true,
+    completedDaysAgo: 5,
+    focusAreas: ['Knowledge retention', 'Next-level practice'],
+    studyRecommendation:
+      'Great JavaScript basics result. Keep practicing with more complex topics.',
+    skillProgress: [
+      {
+        tagName: 'variables',
+        correctCountBefore: 2,
+        wrongCountBefore: 0,
+        correctCountAfter: 3,
+        wrongCountAfter: 0,
+      },
+      {
+        tagName: 'scope',
+        correctCountBefore: 2,
+        wrongCountBefore: 1,
+        correctCountAfter: 3,
+        wrongCountAfter: 1,
+      },
+      {
+        tagName: 'arrays',
+        correctCountBefore: 2,
+        wrongCountBefore: 0,
+        correctCountAfter: 3,
+        wrongCountAfter: 0,
+      },
+    ],
+    answerStrategy: () => true,
+  });
+
+  await createDemoAttempt({
+    userId: student.id,
+    test: getDemoAttemptTest('SQL Query Practice'),
+    score: 4,
+    maxScore: 5,
+    isPassed: true,
+    completedDaysAgo: 4,
+    focusAreas: ['SQL filtering accuracy', 'Advanced joins review'],
+    studyRecommendation:
+      'Good SQL result. Review filtering details and continue with focused joins and grouping practice.',
+    skillProgress: [
+      {
+        tagName: 'sql',
+        correctCountBefore: 2,
+        wrongCountBefore: 1,
+        correctCountAfter: 4,
+        wrongCountAfter: 2,
+      },
+      {
+        tagName: 'filtering',
+        correctCountBefore: 1,
+        wrongCountBefore: 1,
+        correctCountAfter: 1,
+        wrongCountAfter: 2,
+      },
+      {
+        tagName: 'joins',
+        correctCountBefore: 2,
+        wrongCountBefore: 1,
+        correctCountAfter: 3,
+        wrongCountAfter: 1,
+      },
+      {
+        tagName: 'grouping',
+        correctCountBefore: 2,
+        wrongCountBefore: 1,
+        correctCountAfter: 3,
+        wrongCountAfter: 1,
+      },
+    ],
+    answerStrategy: (question) =>
+      !question.tags.some((tag) => tag.name === 'filtering'),
+  });
+
+  await createDemoAttempt({
+    userId: student.id,
+    test: getDemoAttemptTest('Database Design Basics'),
+    score: 6,
+    maxScore: 6,
+    isPassed: true,
+    completedDaysAgo: 2,
+    focusAreas: ['SQL practice', 'Relational query logic'],
+    studyRecommendation:
+      'Database design basics look solid. SQL joins and grouping are a good next step.',
+    skillProgress: [
+      {
+        tagName: 'databases',
+        correctCountBefore: 1,
+        wrongCountBefore: 0,
+        correctCountAfter: 2,
+        wrongCountAfter: 0,
+      },
+      {
+        tagName: 'relations',
+        correctCountBefore: 1,
+        wrongCountBefore: 1,
+        correctCountAfter: 2,
+        wrongCountAfter: 1,
+      },
+      {
+        tagName: 'normalization',
+        correctCountBefore: 1,
+        wrongCountBefore: 0,
+        correctCountAfter: 2,
+        wrongCountAfter: 0,
+      },
+    ],
+    answerStrategy: () => true,
+  });
+
+  const goalCategoriesByName = new Map(
+    goalCategories.map((category) => [category.name, category]),
+  );
+  const masteryTagsByName = new Map(masteryTags.map((tag) => [tag.name, tag]));
+  const sqlGoalTagsByName = new Map(
+    sqlGoalTags.map((tag) => [tag.name, tag]),
+  );
+  const createLearningGoal = async ({
+    title,
+    categoryName,
+    tagNames,
+  }: {
+    title: string;
+    categoryName: string;
+    tagNames: string[];
+  }) => {
+    const goalCategory = goalCategoriesByName.get(categoryName);
+
+    if (!goalCategory) {
+      throw new Error(`Defense demo category was not found: ${categoryName}`);
+    }
+
+    const goalTags = tagNames.map((tagName) => {
+      const tag =
+        masteryTagsByName.get(tagName) ?? sqlGoalTagsByName.get(tagName);
+
+      if (!tag) {
+        throw new Error(`Defense demo goal tag was not found: ${tagName}`);
+      }
+
+      return tag;
+    });
+
+    await prisma.learningGoal.create({
+      data: {
+        userId: student.id,
+        title,
+        targetScore: 80,
+        targetDifficulty: Difficulty.INTERMEDIATE,
+        categoryId: goalCategory.id,
+        goalTags: {
+          createMany: {
+            data: goalTags.map((tag) => ({
+              tagId: tag.id,
+            })),
+          },
+        },
+      },
+    });
+  };
+  const startingMasteries = [
+    { tagName: 'sql', correctCount: 3, wrongCount: 1 },
+    { tagName: 'joins', correctCount: 3, wrongCount: 1 },
+    { tagName: 'grouping', correctCount: 3, wrongCount: 1 },
+    { tagName: 'state', correctCount: 3, wrongCount: 2 },
+    { tagName: 'context', correctCount: 3, wrongCount: 2 },
+    { tagName: 'async', correctCount: 3, wrongCount: 2 },
+    { tagName: 'promises', correctCount: 3, wrongCount: 2 },
+  ];
+
+  for (const mastery of startingMasteries) {
+    const tag = masteryTagsByName.get(mastery.tagName);
+
+    if (!tag) {
+      throw new Error(`Defense demo tag was not found: ${mastery.tagName}`);
+    }
+
+    const attemptsCount = mastery.correctCount + mastery.wrongCount;
+
+    await prisma.userTagMastery.create({
+      data: {
+        userId: student.id,
+        tagId: tag.id,
+        attemptsCount,
+        correctCount: mastery.correctCount,
+        wrongCount: mastery.wrongCount,
+        masteryScore: calculateMasteryScore(
+          mastery.correctCount,
+          attemptsCount,
+        ),
+        lastSeenAt: new Date(),
+      },
+    });
+  }
+
+  await createLearningGoal({
+    title: 'Improve SQL querying',
+    categoryName: 'Databases',
+    tagNames: ['sql', 'joins', 'grouping'],
+  });
+  await createLearningGoal({
+    title: 'Improve React state management',
+    categoryName: 'React',
+    tagNames: ['state', 'context'],
+  });
+  await createLearningGoal({
+    title: 'Practice Node.js async patterns',
+    categoryName: 'Node.js',
+    tagNames: ['async', 'promises'],
+  });
+}
+
+async function clearDefenseRecommendationScenario(userId: string) {
+  await prisma.recommendationSnapshot.deleteMany({
+    where: { userId },
+  });
+  await prisma.recommendationEvent.deleteMany({
+    where: { userId },
+  });
+  await prisma.learningGoal.deleteMany({
+    where: { userId },
+  });
+  await prisma.userTagMastery.deleteMany({
+    where: { userId },
+  });
+  await prisma.attempt.deleteMany({
+    where: { userId },
   });
 }
 

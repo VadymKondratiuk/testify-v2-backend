@@ -52,6 +52,12 @@ export const users = [
     role: Role.STUDENT,
   },
   {
+    email: 'student-test@testify.com',
+    password: 'password123',
+    name: 'Test Student',
+    role: Role.STUDENT,
+  },
+  {
     email: 'teacher3@testify.com',
     password: 'password123',
     name: 'Olena Instructor',
@@ -443,9 +449,355 @@ export const tests: SeedTest[] = [
         points: 3,
         correctTextAnswer:
           'INNER JOIN keeps matching rows only; LEFT JOIN keeps all left-side rows and matching right-side data',
+        acceptedTextAnswers: [
+          'inner join keeps matching rows; left join keeps all left rows',
+          'inner join matching rows left join all left rows',
+        ],
         teacherInsight:
           'Expected answer: INNER JOIN keeps matching rows only; LEFT JOIN keeps all left-side rows and matching right-side data.',
         tags: tagLinks('sql', 'joins'),
+      },
+    ],
+  },
+  {
+    title: 'SQL Joins and Grouping Sprint',
+    description:
+      'A short practice test for SQL joins, grouped filtering, and relational query logic.',
+    difficulty: Difficulty.INTERMEDIATE,
+    isPublished: true,
+    passingScore: 70,
+    timeLimit: 8,
+    averageRating: 4.9,
+    ratingCount: 6,
+    authorEmail: 'teacher3@testify.com',
+    categoryName: 'Databases',
+    questions: [
+      {
+        text: 'Which join returns only rows that have matches in both tables?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('sql', 'joins', 'grouping'),
+        options: {
+          create: [
+            { text: 'INNER JOIN', isCorrect: true },
+            { text: 'LEFT JOIN', isCorrect: false },
+            { text: 'CROSS JOIN', isCorrect: false },
+            { text: 'FULL OUTER JOIN', isCorrect: false },
+          ],
+        },
+      },
+      {
+        text: 'Which clause filters results after GROUP BY is applied?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('sql', 'joins', 'grouping'),
+        options: {
+          create: [
+            { text: 'WHERE', isCorrect: false },
+            { text: 'HAVING', isCorrect: true },
+            { text: 'ORDER BY', isCorrect: false },
+            { text: 'LIMIT', isCorrect: false },
+          ],
+        },
+      },
+      {
+        text: 'Which join keeps every row from the left table?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('sql', 'joins', 'grouping'),
+        options: {
+          create: [
+            { text: 'INNER JOIN', isCorrect: false },
+            { text: 'LEFT JOIN', isCorrect: true },
+            { text: 'CROSS JOIN', isCorrect: false },
+            { text: 'SELF JOIN', isCorrect: false },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    title: 'Advanced SQL Aggregations',
+    description:
+      'Aggregate functions, grouped metrics, HAVING filters, and window function basics.',
+    difficulty: Difficulty.ADVANCED,
+    isPublished: true,
+    passingScore: 75,
+    timeLimit: 30,
+    averageRating: 4.8,
+    ratingCount: 18,
+    authorEmail: 'teacher3@testify.com',
+    categoryName: 'Databases',
+    questions: [
+      {
+        text: 'Which SQL function counts rows in each group?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('sql', 'grouping'),
+        options: {
+          create: [
+            { text: 'COUNT(*)', isCorrect: true },
+            { text: 'ORDER BY', isCorrect: false },
+            { text: 'INNER JOIN', isCorrect: false },
+            { text: 'LIMIT', isCorrect: false },
+          ],
+        },
+      },
+      {
+        text: 'Which clause is commonly used with aggregate functions to create groups?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('sql', 'grouping'),
+        options: {
+          create: [
+            { text: 'GROUP BY', isCorrect: true },
+            { text: 'WHERE', isCorrect: false },
+            { text: 'OFFSET', isCorrect: false },
+            { text: 'INSERT INTO', isCorrect: false },
+          ],
+        },
+      },
+      {
+        text: 'What does ROW_NUMBER() OVER (...) help calculate?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('sql', 'window-functions'),
+        options: {
+          create: [
+            { text: 'A row position within a window or partition', isCorrect: true },
+            { text: 'The database server version', isCorrect: false },
+            { text: 'The number of tables in a schema', isCorrect: false },
+            { text: 'A password hash for each user', isCorrect: false },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    title: 'Database Indexes and Query Plans',
+    description:
+      'Indexes, query plans, lookup cost, and practical database optimization.',
+    difficulty: Difficulty.ADVANCED,
+    isPublished: true,
+    passingScore: 75,
+    timeLimit: 35,
+    averageRating: 4.5,
+    ratingCount: 14,
+    authorEmail: 'teacher1@testify.com',
+    categoryName: 'Databases',
+    questions: [
+      {
+        text: 'What is a common purpose of a database index?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('databases', 'indexes'),
+        options: {
+          create: [
+            { text: 'Speeding up lookups for selected columns', isCorrect: true },
+            { text: 'Replacing every table with a JSON file', isCorrect: false },
+            { text: 'Disabling all constraints', isCorrect: false },
+            { text: 'Automatically writing frontend code', isCorrect: false },
+          ],
+        },
+      },
+      {
+        text: 'Which tool helps inspect how a SQL query may be executed?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('sql', 'query-optimization'),
+        options: {
+          create: [
+            { text: 'EXPLAIN', isCorrect: true },
+            { text: 'DROP', isCorrect: false },
+            { text: 'TRUNCATE', isCorrect: false },
+            { text: 'COMMIT', isCorrect: false },
+          ],
+        },
+      },
+      {
+        text: 'Why can too many indexes slow down write operations?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('databases', 'indexes', 'query-optimization'),
+        options: {
+          create: [
+            { text: 'Each insert or update may also update index structures', isCorrect: true },
+            { text: 'Indexes remove all primary keys', isCorrect: false },
+            { text: 'Indexes force every query to scan all rows', isCorrect: false },
+            { text: 'Indexes disable transactions', isCorrect: false },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    title: 'React State Management Practice',
+    description:
+      'Local state, derived state, context, and predictable updates in React applications.',
+    difficulty: Difficulty.INTERMEDIATE,
+    isPublished: true,
+    passingScore: 70,
+    timeLimit: 25,
+    averageRating: 4.4,
+    ratingCount: 13,
+    authorEmail: 'teacher2@testify.com',
+    categoryName: 'React',
+    questions: [
+      {
+        text: 'Which hook is commonly used for local component state?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('react', 'state'),
+        options: {
+          create: [
+            { text: 'useState', isCorrect: true },
+            { text: 'useFolder', isCorrect: false },
+            { text: 'useSQL', isCorrect: false },
+            { text: 'useClassNameOnly', isCorrect: false },
+          ],
+        },
+      },
+      {
+        text: 'When is React Context useful?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('react', 'context'),
+        options: {
+          create: [
+            { text: 'Sharing values across a component tree', isCorrect: true },
+            { text: 'Creating database migrations', isCorrect: false },
+            { text: 'Replacing HTML semantics', isCorrect: false },
+            { text: 'Compressing images automatically', isCorrect: false },
+          ],
+        },
+      },
+      {
+        text: 'What is derived state?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('react', 'state'),
+        options: {
+          create: [
+            { text: 'A value calculated from existing state or props', isCorrect: true },
+            { text: 'State stored only in CSS files', isCorrect: false },
+            { text: 'A state value that cannot change', isCorrect: false },
+            { text: 'A backend-only environment variable', isCorrect: false },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    title: 'Node.js Async Patterns',
+    description:
+      'Promises, async/await, error handling, and concurrent asynchronous work.',
+    difficulty: Difficulty.INTERMEDIATE,
+    isPublished: true,
+    passingScore: 70,
+    timeLimit: 25,
+    averageRating: 4.3,
+    ratingCount: 11,
+    authorEmail: 'teacher1@testify.com',
+    categoryName: 'Node.js',
+    questions: [
+      {
+        text: 'What does async/await primarily improve?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('nodejs', 'async', 'promises'),
+        options: {
+          create: [
+            { text: 'Readability of Promise-based asynchronous code', isCorrect: true },
+            { text: 'CSS layout performance', isCorrect: false },
+            { text: 'SQL table normalization', isCorrect: false },
+            { text: 'Static HTML validation', isCorrect: false },
+          ],
+        },
+      },
+      {
+        text: 'Which method waits for multiple promises to resolve?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('nodejs', 'async', 'promises'),
+        options: {
+          create: [
+            { text: 'Promise.all', isCorrect: true },
+            { text: 'Array.join', isCorrect: false },
+            { text: 'JSON.stringify', isCorrect: false },
+            { text: 'process.exit', isCorrect: false },
+          ],
+        },
+      },
+      {
+        text: 'How can async/await errors be handled?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('nodejs', 'async'),
+        options: {
+          create: [
+            { text: 'With try/catch around awaited calls', isCorrect: true },
+            { text: 'Only with HTML forms', isCorrect: false },
+            { text: 'Only by restarting the database', isCorrect: false },
+            { text: 'By disabling TypeScript', isCorrect: false },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    title: 'CSS Flexbox and Grid Basics',
+    description:
+      'Practical layout questions for flex containers, grid tracks, and responsive interfaces.',
+    difficulty: Difficulty.INTERMEDIATE,
+    isPublished: true,
+    passingScore: 70,
+    timeLimit: 20,
+    averageRating: 4.2,
+    ratingCount: 10,
+    authorEmail: 'teacher2@testify.com',
+    categoryName: 'HTML & CSS',
+    questions: [
+      {
+        text: 'Which CSS property enables flex layout on an element?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('css', 'layout'),
+        options: {
+          create: [
+            { text: 'display: flex', isCorrect: true },
+            { text: 'position: database', isCorrect: false },
+            { text: 'font-mode: grid', isCorrect: false },
+            { text: 'layout: promise', isCorrect: false },
+          ],
+        },
+      },
+      {
+        text: 'Which CSS property defines columns in a grid container?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('css', 'layout'),
+        options: {
+          create: [
+            { text: 'grid-template-columns', isCorrect: true },
+            { text: 'columns-template-grid', isCorrect: false },
+            { text: 'flex-column-count', isCorrect: false },
+            { text: 'table-columns-only', isCorrect: false },
+          ],
+        },
+      },
+      {
+        text: 'What is the main goal of responsive design?',
+        type: QuestionType.SINGLE_CHOICE,
+        points: 1,
+        tags: tagLinks('css', 'responsive-design'),
+        options: {
+          create: [
+            { text: 'Adapting layout to different screen sizes', isCorrect: true },
+            { text: 'Removing all media queries from CSS', isCorrect: false },
+            { text: 'Making every page fixed width', isCorrect: false },
+            { text: 'Moving all styles into SQL', isCorrect: false },
+          ],
+        },
       },
     ],
   },
@@ -838,4 +1190,3 @@ export const tests: SeedTest[] = [
     ],
   },
 ];
-

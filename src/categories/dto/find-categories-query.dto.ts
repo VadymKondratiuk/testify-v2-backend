@@ -1,10 +1,39 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
+
+const toBoolean = ({ value }: { value: unknown }) => {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  if (value === true || value === 'true') {
+    return true;
+  }
+
+  if (value === false || value === 'false') {
+    return false;
+  }
+
+  return value;
+};
 
 export class FindCategoriesQueryDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  testIsPublished?: boolean;
 
   @IsOptional()
   @Transform(({ value }) => Number(value))
